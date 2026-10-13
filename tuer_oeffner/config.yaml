@@ -1,0 +1,46 @@
+name: Türöffner
+version: "0.1.0"
+slug: tuer_oeffner
+# Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
+# jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
+image: ghcr.io/gregorwolf1973/{arch}-addon-tuer_oeffner
+description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit 2FA und Passkey, Freigabe durch dich
+url: https://github.com/gregorwolf1973/tuer-oeffner-addon
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+# Fuer den Dienstaufruf (Tuer schalten, Benachrichtigung, Standort)
+homeassistant_api: true
+# Die Verwaltung gibt es NUR hier - aus dem Internet ist sie nicht erreichbar
+ingress: true
+ingress_port: 8097
+panel_icon: mdi:door-open
+panel_title: Türöffner
+panel_admin: true
+ports:
+  8097/tcp: 8097
+ports_description:
+  8097/tcp: App für die Freunde (für den Cloudflare-Tunnel)
+options:
+  tuer_entitaet: ""
+  externe_adresse: "https://tuer.biker633.org"
+  radius_meter: 200
+  benachrichtigung: ""
+  breitengrad: ""
+  laengengrad: ""
+  sitzung_tage: 30
+  registrierung_offen: true
+  log_level: info
+schema:
+  tuer_entitaet: str?
+  externe_adresse: str?
+  radius_meter: int(20,5000)
+  benachrichtigung: str?
+  breitengrad: str?
+  laengengrad: str?
+  sitzung_tage: int(1,365)
+  registrierung_offen: bool
+  log_level: list(debug|info|warning|error)

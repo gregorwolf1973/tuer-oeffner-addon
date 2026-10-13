@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Türöffner – Verwaltung</title>
+  <link rel="icon" href="static/icon-192.png">
+  <link rel="stylesheet" href="static/style.css">
+  <link rel="stylesheet" href="static/admin.css">
+</head>
+<body>
+  <main class="breit">
+    <header class="kopf">
+      <img src="static/icon-192.png" alt="" class="logo">
+      <h1>Türöffner – Verwaltung</h1>
+      <button type="button" class="knopf rechts" id="test-oeffnen">Tür jetzt öffnen</button>
+    </header>
+
+    <p id="meldung" class="meldung" role="status" hidden></p>
+    <div id="warnungen"></div>
+
+    <h2>Zugänge</h2>
+    <div class="tabelle-rahmen">
+      <table>
+        <thead><tr><th>Name</th><th>Mail</th><th>Status</th><th>Aus der Ferne</th><th>Passkeys</th><th>Zuletzt geöffnet</th><th></th></tr></thead>
+        <tbody id="benutzer"></tbody>
+      </table>
+    </div>
+
+    <h2>Protokoll</h2>
+    <div class="tabelle-rahmen">
+      <table>
+        <thead><tr><th>Zeit</th><th>Wer</th><th>Was</th><th>Detail</th><th>Absender</th></tr></thead>
+        <tbody id="protokoll"></tbody>
+      </table>
+    </div>
+
+    <h2>Einstellungen</h2>
+    <dl id="einstellungen" class="einstellungen-liste"></dl>
+    <p class="leise">Geändert werden die Einstellungen in den Optionen des Add-ons.</p>
+  </main>
+  <script src="static/admin.js"></script>
+</body>
+</html>

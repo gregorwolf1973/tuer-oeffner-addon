@@ -1,0 +1,38 @@
+configuration:
+  tuer_entitaet:
+    name: Tür-Entität
+    description: >-
+      Was die Tür öffnet, z. B. switch.haustuer oder die vorhandene Automation
+      automation.door_open_for_5_seconds_for_use_intern_only. Unterstützt:
+      switch, input_boolean, script, button, input_button, lock, automation.
+  externe_adresse:
+    name: Externe Adresse
+    description: >-
+      Die https-Adresse, unter der die Freunde die App öffnen. Wird für
+      Passkeys gebraucht.
+  radius_meter:
+    name: Radius (Meter)
+    description: >-
+      Bis zu dieser Entfernung von der Haustür darf geöffnet werden. Zugänge
+      mit Fern-Recht sind davon ausgenommen.
+  benachrichtigung:
+    name: Benachrichtigung
+    description: >-
+      Name des notify-Dienstes für die Push-Nachricht bei jedem Öffnen und
+      jeder neuen Registrierung, z. B. mobile_app_pixel_8.
+  breitengrad:
+    name: Breitengrad der Haustür
+    description: Leer = Standort aus Home Assistant (Einstellungen → System → Allgemein).
+  laengengrad:
+    name: Längengrad der Haustür
+    description: Leer = Standort aus Home Assistant.
+  sitzung_tage:
+    name: Anmeldung gilt (Tage)
+    description: Danach ist wieder Passwort und Code oder Passkey nötig.
+  registrierung_offen:
+    name: Registrierung offen
+    description: Aus = niemand Neues kann sich registrieren.
+  log_level:
+    name: Protokollstufe
+network:
+  8097/tcp: App für die Freunde (für den Cloudflare-Tunnel)

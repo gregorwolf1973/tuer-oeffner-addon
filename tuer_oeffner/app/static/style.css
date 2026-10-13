@@ -1,0 +1,108 @@
+:root {
+  --grund: #f4f6f9;
+  --flaeche: #ffffff;
+  --text: #1c2733;
+  --leise: #5f6f80;
+  --rand: #d5dde6;
+  --akzent: #1f3a5f;
+  --akzent-hell: #2f5b8f;
+  --gut: #1e7d46;
+  --gut-grund: #e3f4ea;
+  --schlecht: #b3261e;
+  --schlecht-grund: #fbe9e7;
+  --warn-grund: #fff4d6;
+  --fern: #7a4fb0;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --grund: #11161c;
+    --flaeche: #1b232c;
+    --text: #e6edf3;
+    --leise: #9aa9b8;
+    --rand: #33404d;
+    --akzent: #8fb8e8;
+    --akzent-hell: #a9c9ef;
+    --gut: #6fd39b;
+    --gut-grund: #173326;
+    --schlecht: #ff8a80;
+    --schlecht-grund: #3a1d1b;
+    --warn-grund: #3a3115;
+    --fern: #c3a3ec;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--grund); color: var(--text); }
+body {
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+}
+main { max-width: 440px; margin: 0 auto; padding: 16px 0 40px; }
+a { color: var(--akzent-hell); }
+h1 { font-size: 1.6rem; margin: 0; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+code { font-size: .95em; word-break: break-all; }
+
+.kopf { display: flex; align-items: center; gap: 12px; margin: 8px 0 20px; }
+.logo { width: 44px; height: 44px; border-radius: 10px; }
+.leise { color: var(--leise); font-size: .92rem; }
+.mitte { text-align: center; }
+.gruss { font-size: 1.1rem; }
+
+.meldung { padding: 10px 12px; border-radius: 8px; margin: 0 0 14px; }
+.meldung.fehler { background: var(--schlecht-grund); color: var(--schlecht); }
+.meldung.ok { background: var(--gut-grund); color: var(--gut); }
+.hinweis { background: var(--warn-grund); padding: 12px; border-radius: 8px; }
+
+.formular { display: grid; gap: 12px; }
+label { display: grid; gap: 4px; font-size: .92rem; color: var(--leise); }
+input {
+  font: inherit; color: var(--text); background: var(--flaeche);
+  border: 1px solid var(--rand); border-radius: 8px; padding: 11px 12px; width: 100%;
+}
+input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
+
+.knopf {
+  font: inherit; cursor: pointer; border-radius: 8px; padding: 10px 14px;
+  border: 1px solid var(--rand); background: var(--flaeche); color: var(--text);
+}
+.knopf.haupt { background: var(--akzent); border-color: var(--akzent); color: #fff; font-weight: 600; width: 100%; padding: 13px; }
+@media (prefers-color-scheme: dark) { .knopf.haupt { color: #10161d; } }
+.knopf.klein { padding: 4px 10px; font-size: .85rem; }
+.knopf:disabled { opacity: .6; cursor: default; }
+
+.trenner { display: flex; align-items: center; gap: 10px; color: var(--leise); font-size: .85rem; }
+.trenner::before, .trenner::after { content: ""; flex: 1; border-top: 1px solid var(--rand); }
+
+.schritte { padding-left: 1.2em; }
+.qr { display: flex; justify-content: center; margin: 8px 0 12px; }
+.qr svg { background: #fff; border-radius: 8px; max-width: 240px; height: auto; }
+
+.liste { list-style: none; padding: 0; margin: 0 0 10px; }
+.liste li { padding: 6px 0; border-bottom: 1px solid var(--rand); font-size: .9rem; }
+
+.einstellungen { margin-top: 32px; border-top: 1px solid var(--rand); padding-top: 12px; }
+.einstellungen summary { cursor: pointer; color: var(--leise); }
+
+/* ---------- Schieber ---------- */
+
+.schieber { margin: 26px 0 8px; user-select: none; -webkit-user-select: none; }
+.spur {
+  position: relative; height: 72px; border-radius: 36px;
+  background: var(--akzent); display: flex; align-items: center; justify-content: center;
+  overflow: hidden; touch-action: none;
+}
+.fern .spur { background: var(--fern); height: 60px; }
+.spur-text { color: #fff; font-weight: 600; letter-spacing: .02em; padding-left: 50px; pointer-events: none; }
+@media (prefers-color-scheme: dark) { .spur-text { color: #10161d; } }
+.griff {
+  position: absolute; left: 4px; top: 4px; bottom: 4px; aspect-ratio: 1;
+  border-radius: 50%; border: 0; background: #fff; font-size: 1.6rem; cursor: grab;
+  transition: transform .25s ease; touch-action: none;
+}
+.zieht .griff { transition: none; cursor: grabbing; }
+.arbeitet .spur { opacity: .85; }
+.offen .spur { background: var(--gut); }
+.griff:focus-visible { outline: 3px solid #ffd54f; }

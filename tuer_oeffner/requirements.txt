@@ -1,0 +1,6 @@
+Flask==3.0.3
+waitress==3.0.2
+requests==2.32.3
+pyotp==2.9.0
+segno==1.6.1
+webauthn==2.5.2
