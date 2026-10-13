@@ -3,8 +3,9 @@
 Zwei Gesichter, ein Prozess:
 
 - Die APP fuer Freunde (oeffentlich, z. B. https://tuer.biker633.org):
-  Registrierung mit Name, Mail und Passwort, danach Pflicht-2FA per TOTP,
-  optional ein Passkey. Geoeffnet wird nur, wenn der Admin den Zugang
+  Registrierung mit Name, Benutzername, Mail und Passwort. Die 2FA per TOTP
+  ist Pflicht oder - je nach Option - fuer jeden selbst ein- und
+  ausschaltbar, dazu optional ein Passkey. Geoeffnet wird nur, wenn der Admin den Zugang
   freigegeben hat - und nur in der Naehe der Haustuer, ausser der Zugang
   darf ausdruecklich "aus der Ferne" oeffnen.
 
@@ -60,6 +61,7 @@ RADIUS_METER = int(os.environ.get("RADIUS_METER", "200") or 200)
 BENACHRICHTIGUNG = os.environ.get("BENACHRICHTIGUNG", "").strip().removeprefix("notify.")
 SITZUNG_TAGE = int(os.environ.get("SITZUNG_TAGE", "30") or 30)
 REGISTRIERUNG_OFFEN = os.environ.get("REGISTRIERUNG_OFFEN", "true").lower() == "true"
+ZWEI_FAKTOR_PFLICHT = os.environ.get("ZWEI_FAKTOR_PFLICHT", "true").lower() == "true"
 INGRESS_ADRESSEN = {a.strip() for a in os.environ.get("INGRESS_ADRESSEN", "172.30.32.2").split(",") if a.strip()}
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 HA_API = os.environ.get("HA_API", "http://supervisor/core/api")
@@ -78,6 +80,8 @@ ABKLINGZEIT_S = 8
 # des Benutzers. Sonst "oeffnete" ein Handy mit 5 km Ungenauigkeit ueberall.
 GENAUIGKEIT_MAX_M = 100
 PROTOKOLL_TAGE = 365
+PASSWORT_MIN = 8
+PASSWORT_MAX = 200
 
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "info").upper(), logging.INFO),
@@ -126,12 +130,16 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS benutzer (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
+    -- Zum Anmelden, alternativ zur Mailadresse. Bei Zugaengen aus 0.1.0 leer.
+    benutzername TEXT UNIQUE,
     email TEXT NOT NULL UNIQUE,
     pw_hash TEXT NOT NULL,
-    -- neu: 2FA noch nicht eingerichtet | wartet: auf Freigabe |
-    -- aktiv | gesperrt
+    -- neu: 2FA noch nicht eingerichtet (nur bei 2FA-Pflicht) |
+    -- wartet: auf Freigabe | aktiv | gesperrt
     status TEXT NOT NULL DEFAULT 'neu',
     fern INTEGER NOT NULL DEFAULT 0,
+    -- 1 = bei der Anmeldung wird nach dem Passwort ein Code verlangt
+    zwei_faktor INTEGER NOT NULL DEFAULT 0,
     totp_geheimnis TEXT,
     totp_letzter_schritt INTEGER NOT NULL DEFAULT 0,
     webauthn_id TEXT NOT NULL,
@@ -189,6 +197,15 @@ def db_einrichten():
     conn = verbinden()
     conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(SCHEMA)
+    # Datenbanken aus 0.1.0 nachruesten. Dort war die 2FA immer Pflicht:
+    # wer sie eingerichtet hat (status nicht 'neu'), hat sie an.
+    spalten = {r[1] for r in conn.execute("PRAGMA table_info(benutzer)")}
+    if "benutzername" not in spalten:
+        conn.execute("ALTER TABLE benutzer ADD COLUMN benutzername TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS benutzer_benutzername ON benutzer(benutzername)")
+    if "zwei_faktor" not in spalten:
+        conn.execute("ALTER TABLE benutzer ADD COLUMN zwei_faktor INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE benutzer SET zwei_faktor = 1 WHERE status != 'neu'")
     conn.execute("DELETE FROM protokoll WHERE zeit < ?", (int(time.time()) - PROTOKOLL_TAGE * 86400,))
     conn.commit()
     conn.close()
@@ -363,6 +380,10 @@ def aktueller_benutzer():
     if not b or session.get("gen") != b["sitzung_gen"] or b["status"] == "gesperrt":
         session.clear()
         return None
+    if ZWEI_FAKTOR_PFLICHT and not b["zwei_faktor"] and session.get("stufe") == "voll":
+        # Die Pflicht wurde eingeschaltet, waehrend diese Sitzung lief:
+        # erst die 2FA einrichten, dann geht es weiter
+        session["stufe"] = "einrichten"
     return b
 
 
@@ -429,6 +450,8 @@ def manifest():
 # ------------------------------------------------------------------
 
 EMAIL_MUSTER = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Ohne @ - so ist bei der Anmeldung klar, ob Mail oder Benutzername gemeint ist
+BENUTZERNAME_MUSTER = re.compile(r"^[a-z0-9._-]{3,30}$")
 
 
 def passkey_moeglich():
@@ -445,6 +468,8 @@ def api_status():
     daten = {
         "registrierung_offen": REGISTRIERUNG_OFFEN,
         "passkey_moeglich": passkey_moeglich(),
+        "zwei_faktor_pflicht": ZWEI_FAKTOR_PFLICHT,
+        "passwort_min": PASSWORT_MIN,
         "angemeldet": False,
     }
     if b:
@@ -453,7 +478,9 @@ def api_status():
             stufe=session.get("stufe"),
             status=b["status"],
             name=b["name"],
+            benutzername=b["benutzername"],
             email=b["email"],
+            zwei_faktor=bool(b["zwei_faktor"]),
             fern=bool(b["fern"]),
             radius=RADIUS_METER,
         )
@@ -478,38 +505,62 @@ def api_registrieren():
         return fehler("Zu viele Versuche. Bitte später noch einmal.", 429)
     e = json_eingabe()
     name = str(e.get("name", "")).strip()[:60]
+    benutzername = str(e.get("benutzername", "")).strip().lower()
     email = str(e.get("email", "")).strip().lower()[:200]
     passwort = str(e.get("passwort", ""))
     if not name:
         return fehler("Bitte einen Namen angeben.")
+    if not BENUTZERNAME_MUSTER.match(benutzername):
+        return fehler("Der Benutzername braucht 3 bis 30 Zeichen: Kleinbuchstaben, Ziffern, Punkt, - oder _.")
     if not EMAIL_MUSTER.match(email):
         return fehler("Das sieht nicht nach einer Mailadresse aus.")
-    if len(passwort) < 10:
-        return fehler("Das Passwort braucht mindestens 10 Zeichen.")
-    if len(passwort) > 200:
-        return fehler("Das Passwort ist zu lang.")
+    if (f := passwort_fehler(passwort)):
+        return f
     # Jede Registrierung zaehlt fuer die Bremse - sonst liesse sich der
     # Admin mit Anfragen zuschuetten.
     ip_fehler()
+    if db().execute("SELECT 1 FROM benutzer WHERE benutzername = ?", (benutzername,)).fetchone():
+        return fehler("Diesen Benutzernamen gibt es schon. Bitte einen anderen wählen.")
     try:
         cur = db().execute(
-            "INSERT INTO benutzer (name, email, pw_hash, totp_geheimnis, webauthn_id, angelegt)"
-            " VALUES (?,?,?,?,?,?)",
-            (name, email, generate_password_hash(passwort), pyotp.random_base32(),
+            "INSERT INTO benutzer (name, benutzername, email, pw_hash, status, totp_geheimnis, webauthn_id,"
+            " angelegt) VALUES (?,?,?,?,?,?,?,?)",
+            (name, benutzername, email, generate_password_hash(passwort),
+             "neu" if ZWEI_FAKTOR_PFLICHT else "wartet", pyotp.random_base32(),
              bytes_to_base64url(secrets.token_bytes(16)), int(time.time())),
         )
         db().commit()
     except sqlite3.IntegrityError:
         return fehler("Diese Mailadresse ist schon registriert. Bitte anmelden.")
     b = benutzer_laden(cur.lastrowid)
-    protokollieren("registriert", b, email)
-    sitzung_beginnen(b, "einrichten")
+    protokollieren("registriert", b, f"{benutzername}, {email}")
+    if ZWEI_FAKTOR_PFLICHT:
+        sitzung_beginnen(b, "einrichten")
+    else:
+        sitzung_beginnen(b, "voll")
+        melde_wartet(b)
     return jsonify({"ok": True})
+
+
+def passwort_fehler(passwort):
+    if len(passwort) < PASSWORT_MIN:
+        return fehler(f"Das Passwort braucht mindestens {PASSWORT_MIN} Zeichen.")
+    if len(passwort) > PASSWORT_MAX:
+        return fehler("Das Passwort ist zu lang.")
+    return None
+
+
+def melde_wartet(b):
+    melden(f"Neue Registrierung: {b['name']} ({b['email']}) wartet auf Freigabe.")
 
 
 @app.get("/api/2fa/einrichten")
 @braucht("einrichten")
 def api_2fa_einrichten(b):
+    return qr_daten(b)
+
+
+def qr_daten(b):
     uri = pyotp.TOTP(b["totp_geheimnis"]).provisioning_uri(name=b["email"], issuer_name="Haustür")
     svg = segno.make(uri, error="m").svg_inline(scale=5, border=2)
     return jsonify({"uri": uri, "geheimnis": b["totp_geheimnis"], "svg": svg})
@@ -567,13 +618,73 @@ def api_2fa_bestaetigen(b):
         fehlversuch(b)
         return fehler("Der Code stimmt nicht. Uhrzeit am Handy prüfen und den aktuellen Code eingeben.")
     erfolg(b)
-    db().execute("UPDATE benutzer SET status = 'wartet' WHERE id = ? AND status = 'neu'", (b["id"],))
+    db().execute("UPDATE benutzer SET zwei_faktor = 1 WHERE id = ?", (b["id"],))
+    neu = db().execute("UPDATE benutzer SET status = 'wartet' WHERE id = ? AND status = 'neu'",
+                       (b["id"],)).rowcount
     db().commit()
     b = benutzer_laden(b["id"])
     sitzung_beginnen(b, "voll")
     protokollieren("2fa_eingerichtet", b)
-    if b["status"] == "wartet":
-        melden(f"Neue Registrierung: {b['name']} ({b['email']}) wartet auf Freigabe.")
+    if neu:
+        melde_wartet(b)
+    return jsonify({"ok": True})
+
+
+# 2FA nachtraeglich ein- und ausschalten (unter "Konto")
+
+
+@app.post("/api/2fa/einschalten/start")
+@braucht("voll")
+def api_2fa_einschalten_start(b):
+    if b["zwei_faktor"]:
+        return fehler("Die Zwei-Faktor-Anmeldung ist schon eingeschaltet.")
+    # Jedes Mal ein frisches Geheimnis - es gilt erst nach dem Bestaetigen
+    db().execute("UPDATE benutzer SET totp_geheimnis = ?, totp_letzter_schritt = 0 WHERE id = ?",
+                 (pyotp.random_base32(), b["id"]))
+    db().commit()
+    return qr_daten(benutzer_laden(b["id"]))
+
+
+@app.post("/api/2fa/einschalten")
+@braucht("voll")
+def api_2fa_einschalten(b):
+    if b["zwei_faktor"]:
+        return fehler("Die Zwei-Faktor-Anmeldung ist schon eingeschaltet.")
+    if ip_gebremst() or kurz_gesperrt(b):
+        return fehler("Zu viele Versuche. Bitte später noch einmal.", 429)
+    if not totp_pruefen(b, json_eingabe().get("code")):
+        fehlversuch(b)
+        return fehler("Der Code stimmt nicht. Uhrzeit am Handy prüfen und den aktuellen Code eingeben.")
+    erfolg(b)
+    # Andere Geraete sind nur mit Passwort angemeldet - die fliegen raus
+    db().execute("UPDATE benutzer SET zwei_faktor = 1, sitzung_gen = sitzung_gen + 1 WHERE id = ?", (b["id"],))
+    db().commit()
+    sitzung_beginnen(benutzer_laden(b["id"]), "voll")
+    protokollieren("2fa_eingeschaltet", b)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/2fa/ausschalten")
+@braucht("voll")
+def api_2fa_ausschalten(b):
+    if ZWEI_FAKTOR_PFLICHT:
+        return fehler("Die Zwei-Faktor-Anmeldung ist hier Pflicht.", 403)
+    if not b["zwei_faktor"]:
+        return fehler("Die Zwei-Faktor-Anmeldung ist schon aus.")
+    if ip_gebremst() or kurz_gesperrt(b):
+        return fehler("Zu viele Versuche. Bitte später noch einmal.", 429)
+    e = json_eingabe()
+    # Passwort UND Code: ein liegengelassenes, angemeldetes Handy allein
+    # reicht nicht, um den Schutz abzuschalten
+    if not check_password_hash(b["pw_hash"], str(e.get("passwort", ""))) or not totp_pruefen(b, e.get("code")):
+        fehlversuch(b)
+        return fehler("Passwort oder Code stimmen nicht.", 401)
+    erfolg(b)
+    db().execute("UPDATE benutzer SET zwei_faktor = 0, totp_geheimnis = ? WHERE id = ?",
+                 (pyotp.random_base32(), b["id"]))
+    db().commit()
+    protokollieren("2fa_ausgeschaltet", b)
+    melden(f"{b['name']} hat die Zwei-Faktor-Anmeldung ausgeschaltet.")
     return jsonify({"ok": True})
 
 
@@ -582,17 +693,32 @@ def api_anmelden():
     if ip_gebremst():
         return fehler("Zu viele Versuche. Bitte später noch einmal.", 429)
     e = json_eingabe()
-    email = str(e.get("email", "")).strip().lower()
-    b = db().execute("SELECT * FROM benutzer WHERE email = ?", (email,)).fetchone()
+    # Benutzername oder Mailadresse - "email" ist der Name aus 0.1.0
+    kennung = str(e.get("kennung", e.get("email", ""))).strip().lower()
+    spalte = "email" if "@" in kennung else "benutzername"
+    b = db().execute(f"SELECT * FROM benutzer WHERE {spalte} = ?", (kennung,)).fetchone()
     if kurz_gesperrt(b):
         return fehler("Zu viele Fehlversuche. Das Konto ist für 15 Minuten gesperrt.", 429)
     if not b or not check_password_hash(b["pw_hash"], str(e.get("passwort", ""))):
         fehlversuch(b)
-        return fehler("Mailadresse oder Passwort stimmen nicht.", 401)
+        return fehler("Benutzername/Mailadresse oder Passwort stimmen nicht.", 401)
     if b["status"] == "gesperrt":
         return fehler("Dieser Zugang ist gesperrt.", 403)
     erfolg(b)
-    sitzung_beginnen(b, "einrichten" if b["status"] == "neu" else "pw")
+    if b["status"] == "neu" and not ZWEI_FAKTOR_PFLICHT:
+        # Unter der Pflicht registriert, aber die 2FA nie eingerichtet - und
+        # inzwischen ist sie freiwillig: dann wartet der Zugang jetzt
+        db().execute("UPDATE benutzer SET status = 'wartet' WHERE id = ?", (b["id"],))
+        db().commit()
+        b = benutzer_laden(b["id"])
+        melde_wartet(b)
+    if b["zwei_faktor"]:
+        stufe = "pw"
+    elif ZWEI_FAKTOR_PFLICHT:
+        stufe = "einrichten"
+    else:
+        stufe = "voll"
+    sitzung_beginnen(b, stufe)
     return jsonify({"ok": True})
 
 
@@ -623,8 +749,8 @@ def api_passwort(b):
         fehlversuch(b)
         return fehler("Das bisherige Passwort stimmt nicht.", 401)
     neu = str(e.get("neu", ""))
-    if not 10 <= len(neu) <= 200:
-        return fehler("Das neue Passwort braucht mindestens 10 Zeichen.")
+    if (f := passwort_fehler(neu)):
+        return f
     # Neue Generation: alle anderen Geraete sind damit abgemeldet
     db().execute("UPDATE benutzer SET pw_hash = ?, sitzung_gen = sitzung_gen + 1 WHERE id = ?",
                  (generate_password_hash(neu), b["id"]))
@@ -655,7 +781,7 @@ def api_passkey_reg_start(b):
         rp_id=rp_id(),
         rp_name="Haustür",
         user_id=base64url_to_bytes(b["webauthn_id"]),
-        user_name=b["email"],
+        user_name=b["benutzername"] or b["email"],
         user_display_name=b["name"],
         # resident key: der Passkey kennt seinen Benutzer, die Anmeldung
         # braucht dann weder Mail noch Passwort
@@ -833,7 +959,8 @@ def api_oeffnen(b):
 @nur_ingress
 def api_admin_uebersicht():
     benutzer = [
-        {k: r[k] for k in ("id", "name", "email", "status", "fern", "angelegt", "freigegeben", "zuletzt_geoeffnet")}
+        {k: r[k] for k in ("id", "name", "benutzername", "email", "status", "fern", "zwei_faktor", "angelegt",
+                           "freigegeben", "zuletzt_geoeffnet")}
         | {"passkeys": r["n_pk"]}
         for r in db().execute(
             "SELECT b.*, (SELECT COUNT(*) FROM passkeys p WHERE p.benutzer_id = b.id) AS n_pk"
@@ -854,6 +981,7 @@ def api_admin_uebersicht():
             "benachrichtigung": BENACHRICHTIGUNG,
             "heim_bekannt": bool(heim),
             "registrierung_offen": REGISTRIERUNG_OFFEN,
+            "zwei_faktor_pflicht": ZWEI_FAKTOR_PFLICHT,
         },
     })
 
@@ -872,7 +1000,8 @@ def api_admin_benutzer(bid, aktion):
     jetzt = int(time.time())
     if aktion == "freigeben":
         if b["status"] != "wartet":
-            return fehler("Freigeben geht erst, wenn die 2FA eingerichtet ist.")
+            return fehler("Freigeben geht erst, wenn die 2FA eingerichtet ist." if b["status"] == "neu"
+                          else "Dieser Zugang wartet nicht auf Freigabe.")
         db().execute("UPDATE benutzer SET status = 'aktiv', freigegeben = ? WHERE id = ?", (jetzt, bid))
     elif aktion == "sperren":
         db().execute("UPDATE benutzer SET status = 'gesperrt', sitzung_gen = sitzung_gen + 1 WHERE id = ?", (bid,))
@@ -881,14 +1010,14 @@ def api_admin_benutzer(bid, aktion):
     elif aktion in ("fern_an", "fern_aus"):
         db().execute("UPDATE benutzer SET fern = ? WHERE id = ?", (int(aktion == "fern_an"), bid))
     elif aktion == "2fa_zuruecksetzen":
-        # Neues Geheimnis, Passkeys weg, alle Sitzungen beendet - und wieder
-        # Freigabe noetig, denn wer jetzt die 2FA neu einrichtet, braucht nur
+        # Neues Geheimnis, 2FA aus, Passkeys weg, alle Sitzungen beendet - und
+        # wieder Freigabe noetig, denn wer sich jetzt anmeldet, braucht nur
         # noch das Passwort.
         db().execute("DELETE FROM passkeys WHERE benutzer_id = ?", (bid,))
         db().execute(
-            "UPDATE benutzer SET status = 'neu', totp_geheimnis = ?, totp_letzter_schritt = 0,"
+            "UPDATE benutzer SET status = ?, zwei_faktor = 0, totp_geheimnis = ?, totp_letzter_schritt = 0,"
             " sitzung_gen = sitzung_gen + 1, fehlversuche = 0, gesperrt_bis = 0 WHERE id = ?",
-            (pyotp.random_base32(), bid))
+            ("neu" if ZWEI_FAKTOR_PFLICHT else "wartet", pyotp.random_base32(), bid))
     elif aktion == "loeschen":
         db().execute("DELETE FROM benutzer WHERE id = ?", (bid,))
     db().commit()
@@ -917,7 +1046,8 @@ def verboten(_e):
 if __name__ == "__main__":
     from waitress import serve
 
-    log.info("Tueroeffner startet auf Port %s (Entitaet: %s)", PORT, TUER_ENTITAET or "-")
+    log.info("Tueroeffner startet auf Port %s (Entitaet: %s, 2FA %s)", PORT, TUER_ENTITAET or "-",
+             "Pflicht" if ZWEI_FAKTOR_PFLICHT else "freiwillig")
     if not TUER_ENTITAET:
         log.warning("Keine Tuer-Entitaet eingestellt - Oeffnen ist nicht moeglich")
     if not passkey_moeglich():

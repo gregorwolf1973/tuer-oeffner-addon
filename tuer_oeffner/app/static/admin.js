@@ -36,6 +36,7 @@ const STATUS = { neu: "2FA fehlt", wartet: "wartet auf Freigabe", aktiv: "aktiv"
 const AKTION_TEXT = {
   geoeffnet: "geöffnet", zu_weit: "zu weit weg", fehler: "Fehler beim Öffnen",
   registriert: "registriert", "2fa_eingerichtet": "2FA eingerichtet",
+  "2fa_eingeschaltet": "2FA eingeschaltet", "2fa_ausgeschaltet": "2FA ausgeschaltet",
   passkey_angelegt: "Passkey angelegt", passkey_geloescht: "Passkey entfernt",
   passwort_geaendert: "Passwort geändert", konto_kurz_gesperrt: "15 min gesperrt (Fehlversuche)",
   admin_freigeben: "freigegeben", admin_sperren: "gesperrt", admin_entsperren: "entsperrt",
@@ -80,11 +81,12 @@ async function laden() {
 
   $("#benutzer").replaceChildren(...d.benutzer.map((b) => {
     const tr = el("tr");
-    tr.append(el("td", b.name), el("td", b.email));
+    tr.append(el("td", b.name), el("td", b.benutzername || "–"), el("td", b.email));
     const st = el("td");
     st.append(el("span", STATUS[b.status] || b.status, "status " + b.status));
     tr.append(st);
-    tr.append(el("td", b.fern ? "ja" : "nein"), el("td", String(b.passkeys)), el("td", zeit(b.zuletzt_geoeffnet)));
+    tr.append(el("td", b.fern ? "ja" : "nein"), el("td", b.zwei_faktor ? "an" : "aus"),
+      el("td", String(b.passkeys)), el("td", zeit(b.zuletzt_geoeffnet)));
     const td = el("td");
     if (b.status === "wartet") td.append(knopf("Freigeben", () => aktion(b, "freigeben")));
     if (b.status === "aktiv" || b.status === "wartet") {
@@ -103,7 +105,7 @@ async function laden() {
   if (!d.benutzer.length) {
     const tr = el("tr");
     const td = el("td", "Noch niemand registriert. Den Freunden die Adresse geben – sie registrieren sich selbst.", "leise");
-    td.colSpan = 7;
+    td.colSpan = 9;
     tr.append(td);
     $("#benutzer").replaceChildren(tr);
   }
@@ -122,6 +124,7 @@ async function laden() {
     ["Benachrichtigung", e.benachrichtigung ? "notify." + e.benachrichtigung : "–"],
     ["Standort der Tür", e.heim_bekannt ? "bekannt" : "unbekannt"],
     ["Registrierung", e.registrierung_offen ? "offen" : "geschlossen"],
+    ["2FA", e.zwei_faktor_pflicht ? "Pflicht" : "freiwillig (jeder schaltet selbst)"],
   ];
   $("#einstellungen").replaceChildren(...zeilen.flatMap(([k, v]) => [el("dt", k), el("dd", v)]));
 }

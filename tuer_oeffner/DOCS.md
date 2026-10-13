@@ -6,9 +6,13 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 ## So funktioniert es
 
 - **App für die Freunde** unter deiner externen Adresse (z. B.
-  `https://tuer.biker633.org`). Registrierung mit Name, Mail und Passwort,
-  danach **Pflicht-2FA** mit einer Authenticator-App. Auf dem Handy lässt
-  sich die Seite als App auf den Startbildschirm legen.
+  `https://tuer.biker633.org`). Registrierung mit Name, Benutzername, Mail
+  und Passwort (mindestens 8 Zeichen). Anmelden geht mit Benutzername
+  **oder** Mailadresse. Auf dem Handy lässt sich die Seite als App auf den
+  Startbildschirm legen.
+- **2FA** mit einer Authenticator-App: mit `zwei_faktor_pflicht` an (so ist
+  es voreingestellt) muss jeder sie einrichten. Aus = das Passwort reicht,
+  und jeder kann die 2FA unter „Konto“ selbst ein- und ausschalten.
 - **Passkey** (Fingerabdruck/Gesicht) kann jeder danach unter „Konto“
   anlegen. Dann reicht „Mit Passkey anmelden“ – ohne Passwort und Code.
 - **Öffnen per Wisch** über den Schieber. Dabei wird der Standort geprüft:
@@ -53,6 +57,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `breitengrad`, `laengengrad` | Standort der Tür, leer = aus Home Assistant |
 | `sitzung_tage` | so lange bleibt man angemeldet |
 | `registrierung_offen` | aus = niemand Neues kann sich registrieren |
+| `zwei_faktor_pflicht` | an = jeder muss die 2FA einrichten; aus = freiwillig, jeder schaltet sie unter „Konto“ selbst |
 
 ## Sicherheit
 
@@ -60,6 +65,10 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 - Nach 5 Fehlversuchen ist ein Konto 15 Minuten gesperrt. Unabhängig davon
   wird ein Absender nach 20 Fehlversuchen in 15 Minuten gebremst.
 - Ein Code aus der Authenticator-App gilt nur einmal.
+- Ohne 2FA-Pflicht schützt bei Zugängen ohne 2FA nur das Passwort. Wer die
+  2FA ausschaltet, braucht dafür Passwort und Code, und du bekommst eine
+  Nachricht. Schaltest du die Pflicht später ein, muss jeder ohne 2FA sie
+  bei der nächsten Anfrage einrichten.
 - Sperren, „2FA zurücksetzen“ und ein Passwortwechsel melden alle Geräte des
   Zugangs sofort ab. Nach „2FA zurücksetzen“ ist wieder deine Freigabe nötig.
 - Passwort vergessen: den Zugang löschen, der Freund registriert sich neu.

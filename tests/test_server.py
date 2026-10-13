@@ -82,8 +82,12 @@ def naechster_code(email, schritte=1):
     return pyotp.TOTP(geheimnis(email)).at(int(time.time()) + 30 * schritte)
 
 
+def anmeldung(name="anna", email="anna@example.org", passwort="geheim-genug-123", **mehr):
+    return {"name": name.capitalize(), "benutzername": name, "email": email, "passwort": passwort} | mehr
+
+
 def registrieren(c, email="anna@example.org", name="Anna"):
-    r = post(c, "/api/registrieren", {"name": name, "email": email, "passwort": "geheim-genug-123"})
+    r = post(c, "/api/registrieren", anmeldung(name.lower(), email))
     assert r.status_code == 200, r.json
     code = pyotp.TOTP(geheimnis(email)).now()
     r = post(c, "/api/2fa/bestaetigen", {"code": code})
@@ -117,14 +121,14 @@ def test_registrierung_wartet_auf_freigabe_und_meldet_den_admin(client, ha):
 
 
 def test_falscher_code_beim_einrichten(client, ha):
-    post(client, "/api/registrieren", {"name": "A", "email": "a@example.org", "passwort": "geheim-genug-123"})
+    post(client, "/api/registrieren", anmeldung("aaa", "a@example.org"))
     r = post(client, "/api/2fa/bestaetigen", {"code": "000000"})
     assert r.status_code == 400
     assert client.get("/api/status").json["stufe"] == "einrichten"
 
 
 def test_qr_nur_beim_einrichten(client, ha):
-    post(client, "/api/registrieren", {"name": "A", "email": "a@example.org", "passwort": "geheim-genug-123"})
+    post(client, "/api/registrieren", anmeldung("aaa", "a@example.org"))
     d = client.get("/api/2fa/einrichten").json
     assert d["uri"].startswith("otpauth://totp/") and "<svg" in d["svg"]
     post(client, "/api/2fa/bestaetigen", {"code": pyotp.TOTP(geheimnis("a@example.org")).now()})
@@ -133,12 +137,39 @@ def test_qr_nur_beim_einrichten(client, ha):
 
 
 def test_kurzes_passwort_und_doppelte_mail(client, ha):
-    r = post(client, "/api/registrieren", {"name": "A", "email": "a@example.org", "passwort": "kurz"})
-    assert r.status_code == 400
+    r = post(client, "/api/registrieren", anmeldung("aaa", "a@example.org", passwort="1234567"))
+    assert r.status_code == 400 and "mindestens 8" in r.json["fehler"]
     registrieren(client, "a@example.org")
-    r = post(server.app.test_client(), "/api/registrieren",
-             {"name": "B", "email": "A@Example.org", "passwort": "geheim-genug-123"})
+    r = post(server.app.test_client(), "/api/registrieren", anmeldung("bbb", "A@Example.org"))
     assert r.status_code == 400 and "schon registriert" in r.json["fehler"]
+
+
+def test_acht_zeichen_reichen(client, ha):
+    r = post(client, "/api/registrieren", anmeldung(passwort="12345678"))
+    assert r.status_code == 200, r.json
+    post(client, "/api/2fa/bestaetigen", {"code": pyotp.TOTP(geheimnis("anna@example.org")).now()})
+    assert post(client, "/api/passwort", {"alt": "12345678", "neu": "1234567"}).status_code == 400
+    assert post(client, "/api/passwort", {"alt": "12345678", "neu": "abcdefgh"}).status_code == 200
+
+
+def test_benutzername_pruefen(client, ha):
+    for falsch in ("ab", "mit leer", "a@b", "x" * 31):
+        r = post(client, "/api/registrieren", anmeldung(falsch))
+        assert r.status_code == 400 and "Benutzername" in r.json["fehler"], falsch
+    registrieren(client)
+    r = post(server.app.test_client(), "/api/registrieren", anmeldung("Anna", "andere@example.org"))
+    assert r.status_code == 400 and "Benutzernamen gibt es schon" in r.json["fehler"]
+
+
+def test_anmelden_mit_benutzername(client, ha):
+    registrieren(client)
+    for kennung in ("anna", " Anna ", "anna@example.org"):
+        c = server.app.test_client()
+        r = post(c, "/api/anmelden", {"kennung": kennung, "passwort": "geheim-genug-123"})
+        assert r.status_code == 200, kennung
+        assert c.get("/api/status").json["stufe"] == "pw"
+    r = post(server.app.test_client(), "/api/anmelden", {"kennung": "anna", "passwort": "falsch-falsch"})
+    assert r.status_code == 401 and "Benutzername/Mailadresse" in r.json["fehler"]
 
 
 def test_oeffnen_in_der_naehe(client, ha):
@@ -239,7 +270,7 @@ def test_konto_sperre_nach_fehlversuchen(client, ha):
 def test_ip_bremse(client, ha):
     c = server.app.test_client()
     for i in range(server.IP_FEHLER_MAX):
-        post(c, "/api/anmelden", {"email": f"x{i}@example.org", "passwort": "falsch"})
+        post(c, "/api/anmelden", {"kennung": f"x{i}", "passwort": "falsch"})
     r = post(c, "/api/anmelden", {"email": "y@example.org", "passwort": "falsch"})
     assert r.status_code == 429
 
@@ -306,7 +337,7 @@ def test_automation_wird_ausgeloest(client, ha, monkeypatch):
 
 
 def test_freigeben_erst_nach_2fa(client, ha):
-    post(client, "/api/registrieren", {"name": "A", "email": "a@example.org", "passwort": "geheim-genug-123"})
+    post(client, "/api/registrieren", anmeldung("aaa", "a@example.org"))
     bid = benutzer_id("a@example.org")
     r = post(server.app.test_client(), f"/api/admin/benutzer/{bid}/freigeben", environ_base=INGRESS)
     assert r.status_code == 400
@@ -330,9 +361,96 @@ def test_unbekannter_passkey(client, ha):
     assert c.get("/api/status").json["angemeldet"] is False
 
 
+def test_ohne_pflicht_reicht_das_passwort(client, ha, monkeypatch):
+    monkeypatch.setattr(server, "ZWEI_FAKTOR_PFLICHT", False)
+    assert post(client, "/api/registrieren", anmeldung()).status_code == 200
+    s = client.get("/api/status").json
+    assert s["stufe"] == "voll" and s["status"] == "wartet" and s["zwei_faktor"] is False
+    assert any("wartet auf Freigabe" in d.get("message", "") for _, p, d in ha if "notify" in p)
+    freigeben("anna@example.org")
+    c = server.app.test_client()
+    assert post(c, "/api/anmelden", {"kennung": "anna", "passwort": "geheim-genug-123"}).status_code == 200
+    assert c.get("/api/status").json["stufe"] == "voll"
+    assert post(c, "/api/oeffnen", nah()).status_code == 200
+
+
+def test_2fa_selbst_ein_und_ausschalten(client, ha, monkeypatch):
+    monkeypatch.setattr(server, "ZWEI_FAKTOR_PFLICHT", False)
+    post(client, "/api/registrieren", anmeldung())
+    zweites = server.app.test_client()
+    post(zweites, "/api/anmelden", {"kennung": "anna", "passwort": "geheim-genug-123"})
+    # Einschalten: QR holen, Code bestaetigen
+    d = post(client, "/api/2fa/einschalten/start").json
+    assert "<svg" in d["svg"]
+    assert post(client, "/api/2fa/einschalten", {"code": "000000"}).status_code == 400
+    r = post(client, "/api/2fa/einschalten", {"code": pyotp.TOTP(geheimnis("anna@example.org")).now()})
+    assert r.status_code == 200
+    assert client.get("/api/status").json["zwei_faktor"] is True
+    # Das andere Geraet war nur mit Passwort drin - jetzt abgemeldet
+    assert zweites.get("/api/status").json["angemeldet"] is False
+    c = server.app.test_client()
+    post(c, "/api/anmelden", {"kennung": "anna", "passwort": "geheim-genug-123"})
+    assert c.get("/api/status").json["stufe"] == "pw"
+    # Ausschalten braucht Passwort UND Code
+    code = naechster_code("anna@example.org")
+    assert post(client, "/api/2fa/ausschalten", {"passwort": "falsch-falsch", "code": code}).status_code == 401
+    assert post(client, "/api/2fa/ausschalten", {"passwort": "geheim-genug-123", "code": "000000"}).status_code == 401
+    r = post(client, "/api/2fa/ausschalten", {"passwort": "geheim-genug-123", "code": code})
+    assert r.status_code == 200
+    assert client.get("/api/status").json["zwei_faktor"] is False
+    assert any("ausgeschaltet" in d.get("message", "") for _, p, d in ha if "notify" in p)
+    c = server.app.test_client()
+    post(c, "/api/anmelden", {"kennung": "anna", "passwort": "geheim-genug-123"})
+    assert c.get("/api/status").json["stufe"] == "voll"
+
+
+def test_ausschalten_geht_nicht_bei_pflicht(client, ha):
+    registrieren(client)
+    r = post(client, "/api/2fa/ausschalten",
+             {"passwort": "geheim-genug-123", "code": naechster_code("anna@example.org")})
+    assert r.status_code == 403
+    assert client.get("/api/status").json["zwei_faktor"] is True
+
+
+def test_pflicht_nachtraeglich_eingeschaltet(client, ha, monkeypatch):
+    monkeypatch.setattr(server, "ZWEI_FAKTOR_PFLICHT", False)
+    post(client, "/api/registrieren", anmeldung())
+    freigeben("anna@example.org")
+    monkeypatch.setattr(server, "ZWEI_FAKTOR_PFLICHT", True)
+    # Die laufende Sitzung muss erst die 2FA einrichten
+    assert client.get("/api/status").json["stufe"] == "einrichten"
+    assert post(client, "/api/oeffnen", nah()).status_code == 401
+    post(client, "/api/2fa/bestaetigen", {"code": pyotp.TOTP(geheimnis("anna@example.org")).now()})
+    s = client.get("/api/status").json
+    assert s["stufe"] == "voll" and s["status"] == "aktiv" and s["zwei_faktor"] is True
+
+
+def test_alte_datenbank_wird_nachgeruestet(monkeypatch, tmp_path):
+    import sqlite3
+    pfad = tmp_path / "tuer.db"
+    conn = sqlite3.connect(pfad)
+    conn.executescript("""
+        CREATE TABLE benutzer (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
+            pw_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'neu', fern INTEGER NOT NULL DEFAULT 0,
+            totp_geheimnis TEXT, totp_letzter_schritt INTEGER NOT NULL DEFAULT 0, webauthn_id TEXT NOT NULL,
+            sitzung_gen INTEGER NOT NULL DEFAULT 1, fehlversuche INTEGER NOT NULL DEFAULT 0,
+            gesperrt_bis INTEGER NOT NULL DEFAULT 0, angelegt INTEGER NOT NULL, freigegeben INTEGER,
+            zuletzt_geoeffnet INTEGER);
+        INSERT INTO benutzer (name, email, pw_hash, status, webauthn_id, angelegt) VALUES
+            ('A', 'a@x.org', '-', 'aktiv', 'w1', 0), ('B', 'b@x.org', '-', 'neu', 'w2', 0);
+    """)
+    conn.close()
+    monkeypatch.setattr(server, "DB_PFAD", str(pfad))
+    server.db_einrichten()
+    conn = sqlite3.connect(pfad)
+    assert conn.execute("SELECT email, zwei_faktor, benutzername FROM benutzer ORDER BY id").fetchall() == [
+        ("a@x.org", 1, None), ("b@x.org", 0, None)]
+    conn.close()
+
+
 def test_registrierung_geschlossen(client, ha, monkeypatch):
     monkeypatch.setattr(server, "REGISTRIERUNG_OFFEN", False)
-    r = post(client, "/api/registrieren", {"name": "A", "email": "a@example.org", "passwort": "geheim-genug-123"})
+    r = post(client, "/api/registrieren", anmeldung("aaa", "a@example.org"))
     assert r.status_code == 403
 
 

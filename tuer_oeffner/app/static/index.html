@@ -29,7 +29,7 @@
       <button type="button" id="passkey-anmelden" class="knopf haupt" hidden>Mit Passkey anmelden</button>
       <p class="trenner" id="passkey-trenner" hidden><span>oder</span></p>
       <form id="form-anmelden" class="formular">
-        <label>Mailadresse<input type="email" name="email" autocomplete="username" required></label>
+        <label>Benutzername oder Mailadresse<input name="kennung" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
         <label>Passwort<input type="password" name="passwort" autocomplete="current-password" required></label>
         <button class="knopf haupt">Anmelden</button>
       </form>
@@ -40,9 +40,11 @@
     <section data-ansicht="registrieren" hidden>
       <form id="form-registrieren" class="formular">
         <label>Dein Name<input name="name" autocomplete="name" maxlength="60" required></label>
-        <label>Mailadresse<input type="email" name="email" autocomplete="username" required></label>
-        <label>Passwort (mindestens 10 Zeichen)<input type="password" name="passwort" autocomplete="new-password" minlength="10" required></label>
-        <label>Passwort wiederholen<input type="password" name="passwort2" autocomplete="new-password" minlength="10" required></label>
+        <label>Benutzername (3–30 Zeichen: a–z, 0–9, Punkt, - oder _)
+          <input name="benutzername" autocomplete="username" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9._\-]{3,30}" maxlength="30" required></label>
+        <label>Mailadresse<input type="email" name="email" autocomplete="email" required></label>
+        <label>Passwort (mindestens 8 Zeichen)<input type="password" name="passwort" autocomplete="new-password" minlength="8" required></label>
+        <label>Passwort wiederholen<input type="password" name="passwort2" autocomplete="new-password" minlength="8" required></label>
         <button class="knopf haupt">Weiter</button>
       </form>
       <p class="leise">Schon registriert? <a href="#" data-geh="anmelden">Anmelden</a></p>
@@ -66,7 +68,7 @@
           <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
         <button class="knopf haupt">Bestätigen</button>
       </form>
-      <p class="leise"><a href="#" data-aktion="abmelden">Abbrechen</a></p>
+      <p class="leise"><a href="#" data-aktion="einrichten-abbrechen">Abbrechen</a></p>
     </section>
 
     <!-- Code bei der Anmeldung -->
@@ -109,11 +111,21 @@
           <ul id="passkeys" class="liste"></ul>
           <button type="button" class="knopf" id="passkey-neu">Passkey auf diesem Gerät anlegen</button>
         </div>
+        <h3>Zwei-Faktor-Anmeldung</h3>
+        <p class="leise" id="zwei-faktor-text"></p>
+        <button type="button" class="knopf" id="zwei-faktor-an" hidden>Einschalten</button>
+        <form id="form-zwei-faktor-aus" class="formular" hidden>
+          <input name="benutzer" autocomplete="username" class="konto-benutzer" hidden>
+          <label>Passwort<input type="password" name="passwort" autocomplete="current-password" required></label>
+          <label>Code aus der Authenticator-App
+            <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
+          <button class="knopf">Ausschalten</button>
+        </form>
         <h3>Passwort ändern</h3>
         <form id="form-passwort" class="formular">
-          <input type="email" name="benutzer" autocomplete="username" id="passwort-benutzer" hidden>
+          <input name="benutzer" autocomplete="username" class="konto-benutzer" hidden>
           <label>Bisheriges Passwort<input type="password" name="alt" autocomplete="current-password" required></label>
-          <label>Neues Passwort<input type="password" name="neu" autocomplete="new-password" minlength="10" required></label>
+          <label>Neues Passwort (mindestens 8 Zeichen)<input type="password" name="neu" autocomplete="new-password" minlength="8" required></label>
           <button class="knopf">Ändern</button>
         </form>
         <p><button type="button" class="knopf" data-aktion="abmelden">Abmelden</button></p>

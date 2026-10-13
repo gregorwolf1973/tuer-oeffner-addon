@@ -58,11 +58,18 @@ async function laden() {
   $("#zur-registrierung").hidden = !zustand.registrierung_offen;
 
   if (!zustand.angemeldet) return zeige("anmelden");
-  if (zustand.stufe === "einrichten") return einrichtenZeigen();
+  if (zustand.stufe === "einrichten") return einrichtenZeigen(false);
   if (zustand.stufe === "pw") return zeige("code");
 
   $("#name").textContent = zustand.name;
-  $("#passwort-benutzer").value = zustand.email;
+  $$(".konto-benutzer").forEach((i) => (i.value = zustand.benutzername || zustand.email));
+  $("#zwei-faktor-text").textContent = zustand.zwei_faktor
+    ? (zustand.zwei_faktor_pflicht
+      ? "Eingeschaltet. Bei der Anmeldung mit Passwort wird ein Code verlangt – das ist hier Pflicht."
+      : "Eingeschaltet. Zum Ausschalten Passwort und einen aktuellen Code eingeben.")
+    : "Ausgeschaltet. Mit Authenticator-App ist dein Zugang besser geschützt, falls jemand dein Passwort erfährt.";
+  $("#zwei-faktor-an").hidden = zustand.zwei_faktor;
+  $("#form-zwei-faktor-aus").hidden = !zustand.zwei_faktor || zustand.zwei_faktor_pflicht;
   $("#wartet").hidden = zustand.status === "aktiv";
   $("#oeffnen").hidden = zustand.status !== "aktiv";
   $("#fern").hidden = !zustand.fern;
@@ -87,10 +94,15 @@ async function laden() {
   zeige("haupt");
 }
 
-async function einrichtenZeigen() {
+/* konto: aus "Konto" heraus eingeschaltet (sonst Pflicht nach der Anmeldung) */
+let einrichtenAusKonto = false;
+
+async function einrichtenZeigen(konto) {
+  einrichtenAusKonto = konto;
+  $("#qr").replaceChildren();
   zeige("einrichten");
   try {
-    const d = await api("2fa/einrichten");
+    const d = konto ? await api("2fa/einschalten/start", {}) : await api("2fa/einrichten");
     // Das SVG kommt von unserem eigenen Server (segno), kein Fremdinhalt
     $("#qr").innerHTML = d.svg;
     $("#totp-geheimnis").textContent = d.geheimnis.replace(/(.{4})/g, "$1 ").trim();
@@ -133,15 +145,26 @@ formular("#form-anmelden", async (d) => {
 
 formular("#form-registrieren", async (d) => {
   if (d.passwort !== d.passwort2) throw new Error("Die beiden Passwörter sind nicht gleich.");
-  await api("registrieren", { name: d.name, email: d.email, passwort: d.passwort });
+  await api("registrieren", { name: d.name, benutzername: d.benutzername, email: d.email, passwort: d.passwort });
   await laden();
 });
 
 formular("#form-einrichten", async (d) => {
-  await api("2fa/bestaetigen", d);
-  melde("Eingerichtet. Jetzt muss dein Zugang noch freigegeben werden.", "ok");
+  const ausKonto = einrichtenAusKonto;
+  await api(ausKonto ? "2fa/einschalten" : "2fa/bestaetigen", d);
+  await laden();
+  if (ausKonto) melde("Zwei-Faktor-Anmeldung ist eingeschaltet. Andere Geräte sind abgemeldet.", "ok");
+  else if (zustand.status === "wartet") melde("Eingerichtet. Jetzt muss dein Zugang noch freigegeben werden.", "ok");
+  else melde("Zwei-Faktor-Anmeldung ist eingerichtet.", "ok");
+});
+
+formular("#form-zwei-faktor-aus", async (d) => {
+  await api("2fa/ausschalten", { passwort: d.passwort, code: d.code });
+  melde("Zwei-Faktor-Anmeldung ist ausgeschaltet.", "ok");
   await laden();
 });
+
+$("#zwei-faktor-an").addEventListener("click", () => einrichtenZeigen(true));
 
 formular("#form-code", async (d) => {
   await api("anmelden/code", d);
@@ -166,6 +189,12 @@ document.addEventListener("click", async (ev) => {
     await api("abmelden", {}).catch(() => {});
     melde("");
     laden();
+  }
+  if (aktion === "einrichten-abbrechen") {
+    ev.preventDefault();
+    melde("");
+    if (einrichtenAusKonto) laden();
+    else await api("abmelden", {}).catch(() => {}).then(laden);
   }
   if (aktion === "neu-laden") laden();
 });

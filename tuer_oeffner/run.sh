@@ -8,6 +8,7 @@ export BREITENGRAD="$(bashio::config 'breitengrad')"
 export LAENGENGRAD="$(bashio::config 'laengengrad')"
 export SITZUNG_TAGE="$(bashio::config 'sitzung_tage')"
 export REGISTRIERUNG_OFFEN="$(bashio::config 'registrierung_offen')"
+export ZWEI_FAKTOR_PFLICHT="$(bashio::config 'zwei_faktor_pflicht')"
 export LOG_LEVEL="$(bashio::config 'log_level')"
 export DATA_DIR=/data
 

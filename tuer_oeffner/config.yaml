@@ -1,10 +1,10 @@
 name: Türöffner
-version: "0.1.0"
+version: "0.2.0"
 slug: tuer_oeffner
 # Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
 # jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
 image: ghcr.io/gregorwolf1973/{arch}-addon-tuer_oeffner
-description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit 2FA und Passkey, Freigabe durch dich
+description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich
 url: https://github.com/gregorwolf1973/tuer-oeffner-addon
 arch:
   - aarch64
@@ -33,6 +33,7 @@ options:
   laengengrad: ""
   sitzung_tage: 30
   registrierung_offen: true
+  zwei_faktor_pflicht: true
   log_level: info
 schema:
   tuer_entitaet: str?
@@ -43,4 +44,5 @@ schema:
   laengengrad: str?
   sitzung_tage: int(1,365)
   registrierung_offen: bool
+  zwei_faktor_pflicht: bool
   log_level: list(debug|info|warning|error)

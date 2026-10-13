@@ -32,6 +32,12 @@ configuration:
   registrierung_offen:
     name: Registrierung offen
     description: Aus = niemand Neues kann sich registrieren.
+  zwei_faktor_pflicht:
+    name: 2FA ist Pflicht
+    description: >-
+      An = jeder muss eine Authenticator-App einrichten. Aus = Anmeldung mit
+      Passwort reicht, jeder kann die 2FA in der App unter „Konto“ selbst
+      ein- und ausschalten.
   log_level:
     name: Protokollstufe
 network:
