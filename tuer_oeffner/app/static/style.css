@@ -14,10 +14,35 @@
   --fern: #7a4fb0;
   --warm: #c2410c;
   --saug: #0f766e;
-  color-scheme: light dark;
+  /* Schrift auf farbigen Knoepfen und Schiebern */
+  --auf-farbe: #fff;
+  color-scheme: light;
+}
+/* Darstellung: data-theme an <html> ist "dunkel" (Voreinstellung), "hell"
+   oder "auto" (wie das Handy). Die dunklen Farben stehen deshalb zweimal. */
+:root[data-theme="dunkel"] {
+  --grund: #11161c;
+  --flaeche: #1b232c;
+  --text: #e6edf3;
+  --leise: #9aa9b8;
+  --rand: #33404d;
+  --akzent: #8fb8e8;
+  --akzent-hell: #a9c9ef;
+  --gut: #6fd39b;
+  --gut-grund: #173326;
+  --schlecht: #ff8a80;
+  --schlecht-grund: #3a1d1b;
+  --warn-grund: #3a3115;
+  --fern: #c3a3ec;
+  --warm: #fb923c;
+  --saug: #5eead4;
+  --auf-farbe: #10161d;
+  color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme="auto"] {
+    --auf-farbe: #10161d;
+    color-scheme: dark;
     --grund: #11161c;
     --flaeche: #1b232c;
     --text: #e6edf3;
@@ -72,8 +97,7 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
   font: inherit; cursor: pointer; border-radius: 8px; padding: 10px 14px;
   border: 1px solid var(--rand); background: var(--flaeche); color: var(--text);
 }
-.knopf.haupt { background: var(--akzent); border-color: var(--akzent); color: #fff; font-weight: 600; width: 100%; padding: 13px; }
-@media (prefers-color-scheme: dark) { .knopf.haupt { color: #10161d; } }
+.knopf.haupt { background: var(--akzent); border-color: var(--akzent); color: var(--auf-farbe); font-weight: 600; width: 100%; padding: 13px; }
 .knopf.klein { padding: 4px 10px; font-size: .85rem; }
 .knopf:disabled { opacity: .6; cursor: default; }
 
@@ -99,8 +123,7 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
   overflow: hidden; touch-action: none;
 }
 .fern .spur { background: var(--fern); height: 60px; }
-.spur-text { color: #fff; font-weight: 600; letter-spacing: .02em; padding-left: 50px; pointer-events: none; }
-@media (prefers-color-scheme: dark) { .spur-text { color: #10161d; } }
+.spur-text { color: var(--auf-farbe); font-weight: 600; letter-spacing: .02em; padding-left: 50px; pointer-events: none; }
 .griff {
   position: absolute; left: 4px; top: 4px; bottom: 4px; aspect-ratio: 1;
   border-radius: 50%; border: 0; background: #fff; font-size: 1.6rem; cursor: grab;
@@ -133,3 +156,9 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 .knopf.haupt.saug-zurueck { background: var(--flaeche); border-color: var(--saug); color: var(--saug); }
 /* Auf sehr schmalen Handys untereinander, damit der Text nicht bricht */
 @media (max-width: 340px) { .knopf-paar { grid-template-columns: 1fr; } }
+
+/* ---------- Darstellung (unter "Konto") ---------- */
+
+.darstellung { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.darstellung .knopf { min-height: 44px; padding: 8px 6px; font-size: .9rem; }
+.darstellung .knopf[aria-pressed="true"] { border-color: var(--akzent-hell); color: var(--akzent-hell); font-weight: 600; }

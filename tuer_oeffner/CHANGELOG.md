@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.4.1
+
+- Die App ist jetzt dunkel. Unter „Konto“ → „Darstellung“ lässt sich auf
+  Hell oder „Wie das Handy“ umstellen; die Wahl merkt sich jedes Gerät.
+
 ## 0.4.0
 
 - Staubsauger für die Familie: Status und Akku in der App, dazu „Saugen

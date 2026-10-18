@@ -5,6 +5,29 @@ const $ = (sel, wurzel = document) => wurzel.querySelector(sel);
 const $$ = (sel, wurzel = document) => [...wurzel.querySelectorAll(sel)];
 let zustand = {};
 
+/* ---------- Darstellung: dunkel (Voreinstellung), hell, wie das Handy ---------- */
+
+const THEMEN = { dunkel: "#11161c", hell: "#f4f6f9", auto: null };
+
+function themaSetzen(wahl) {
+  if (!(wahl in THEMEN)) wahl = "dunkel";
+  document.documentElement.dataset.theme = wahl;
+  const dunkel = wahl === "dunkel" || (wahl === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+  $('meta[name="theme-color"]').content = dunkel ? THEMEN.dunkel : THEMEN.hell;
+  $$("[data-theme-wahl]").forEach((k) => k.setAttribute("aria-pressed", String(k.dataset.themeWahl === wahl)));
+}
+
+function themaGespeichert() {
+  try { return localStorage.getItem("thema") || "dunkel"; } catch { return "dunkel"; }
+}
+
+themaSetzen(themaGespeichert());
+$$("[data-theme-wahl]").forEach((k) => k.addEventListener("click", () => {
+  try { localStorage.setItem("thema", k.dataset.themeWahl); } catch { /* nur fuer diese Sitzung */ }
+  themaSetzen(k.dataset.themeWahl);
+}));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => themaSetzen(themaGespeichert()));
+
 /* ---------- Server ---------- */
 
 async function api(pfad, daten) {
