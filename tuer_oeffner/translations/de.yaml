@@ -53,6 +53,18 @@ configuration:
     description: >-
       binary_sensor, der an ist, solange aufgeheizt wird, z. B.
       binary_sensor.e3_vitocal_einmalige_ladung. Verhindert doppeltes Starten.
+  warmwasser_heizt:
+    name: Wärmepumpe heizt gerade
+    description: >-
+      binary_sensor, der an ist, solange der Kompressor läuft, z. B.
+      binary_sensor.e3_vitocal_kompressor. Erst damit zeigt die App „heizt
+      gerade“ – sonst nur „angefordert“.
+  warmwasser_soll:
+    name: Warmwasser-Zieltemperatur
+    description: >-
+      number-Entität mit der Solltemperatur, z. B.
+      number.e3_vitocal_ww_temperatur. Wird in der App angezeigt und ist in
+      der Verwaltung einstellbar.
   staubsauger_entitaet:
     name: Staubsauger
     description: >-

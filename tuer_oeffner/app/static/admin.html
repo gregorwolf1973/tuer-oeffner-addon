@@ -19,13 +19,28 @@
     <p id="meldung" class="meldung" role="status" hidden></p>
     <div id="warnungen"></div>
 
-    <h2>Zugänge</h2>
-    <div class="tabelle-rahmen">
-      <table>
-        <thead><tr><th>Name</th><th>Benutzername</th><th>Mail</th><th>Status</th><th>Aus der Ferne</th><th>Familie</th><th>2FA</th><th>Passkeys</th><th>Zuletzt geöffnet</th><th></th></tr></thead>
-        <tbody id="benutzer"></tbody>
-      </table>
+    <section id="ww-verwaltung" class="karte ww-verwaltung" aria-labelledby="ww-v-titel" hidden>
+      <div class="karte-kopf">
+        <h2 id="ww-v-titel">Warmwasser</h2>
+        <span id="ww-v-temperatur" class="ww-temperatur">–</span>
+      </div>
+      <p id="ww-v-status" class="leise ww-status"></p>
+      <form id="ww-ziel-form" class="ww-ziel">
+        <span class="leise">Zieltemperatur</span>
+        <div class="ww-ziel-regler">
+          <button type="button" class="knopf" data-schritt="-1" aria-label="Kälter">−</button>
+          <output id="ww-ziel-anzeige" aria-live="polite">–</output>
+          <button type="button" class="knopf" data-schritt="1" aria-label="Wärmer">+</button>
+        </div>
+        <button class="knopf haupt" id="ww-ziel-speichern" disabled>Übernehmen</button>
+      </form>
+    </section>
+
+    <div class="abschnitt-kopf">
+      <h2>Zugänge</h2>
+      <span id="zaehler" class="leise"></span>
     </div>
+    <div id="benutzer" class="zugaenge"></div>
 
     <h2>Protokoll</h2>
     <div class="tabelle-rahmen">
@@ -35,9 +50,11 @@
       </table>
     </div>
 
-    <h2>Einstellungen</h2>
-    <dl id="einstellungen" class="einstellungen-liste"></dl>
-    <p class="leise">Geändert werden die Einstellungen in den Optionen des Add-ons.</p>
+    <details class="einstellungen-block">
+      <summary><h2>Einstellungen</h2></summary>
+      <dl id="einstellungen" class="einstellungen-liste"></dl>
+      <p class="leise">Geändert werden die Einstellungen in den Optionen des Add-ons.</p>
+    </details>
   </main>
   <script src="static/admin.js"></script>
 </body>

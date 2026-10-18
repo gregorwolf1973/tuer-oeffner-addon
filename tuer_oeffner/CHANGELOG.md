@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.7.0
+
+- Warmwasser ehrlicher: „Heizt gerade“ nur, wenn der Kompressor läuft,
+  sonst „angefordert“. Ist das Wasser schon wärmer als die Zieltemperatur,
+  ist der Knopf gesperrt und die App sagt warum. Die Zieltemperatur steht
+  mit in der Karte.
+- Verwaltung übersichtlicher: jeder Zugang als Karte mit Schaltern für „Aus
+  der Ferne“ und „Familie“, Seltenes unter „Mehr“. Neu: die
+  Warmwasser-Zieltemperatur ist dort mit − / + einstellbar.
+- Neue Optionen `warmwasser_heizt` und `warmwasser_soll`.
+
 ## 0.6.0
 
 - Gäste-WLAN: Knopf „WLAN-QR-Code zeigen“ für jeden freigegebenen Zugang,

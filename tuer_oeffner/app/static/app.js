@@ -397,11 +397,26 @@ function warmwasserZeigen(d) {
     ? "–"
     : `${String(d.temperatur).replace(".", ",")} ${d.einheit}`;
   const knopf = $("#ww-aufheizen");
-  knopf.disabled = wwStartet || d.laeuft === true;
-  knopf.textContent = d.laeuft ? "Heizt gerade auf …" : "Wasser aufheizen";
-  $("#ww-status").textContent = d.laeuft
-    ? "Das Wasser wird gerade aufgeheizt."
-    : "Temperatur im Speicher";
+  // Ueber dem Sollwert bewirkt eine Ladung nichts - das sagen wir ehrlich
+  const warmGenug = d.temperatur != null && d.soll != null && d.temperatur >= d.soll;
+  const ziel = d.soll == null ? "" : ` · Ziel ${String(d.soll).replace(".", ",")} °C`;
+  knopf.disabled = wwStartet || d.laeuft === true || warmGenug;
+  let knopfText = "Wasser aufheizen";
+  let status = "Temperatur im Speicher" + ziel;
+  if (d.laeuft && d.heizt) {
+    knopfText = "Heizt gerade auf …";
+    status = "Die Wärmepumpe heizt gerade das Wasser auf" + ziel + ".";
+  } else if (d.laeuft) {
+    knopfText = "Aufheizen angefordert";
+    status = warmGenug
+      ? "Angefordert – das Wasser ist aber schon warm genug, die Wärmepumpe bleibt aus."
+      : "Angefordert – die Wärmepumpe startet, sobald sie kann.";
+  } else if (warmGenug) {
+    knopfText = "Schon warm genug";
+    status = "Das Wasser ist warm genug" + ziel + ".";
+  }
+  knopf.textContent = knopfText;
+  $("#ww-status").textContent = status;
 }
 
 async function warmwasserLaden() {
@@ -418,9 +433,9 @@ $("#ww-aufheizen").addEventListener("click", async () => {
   try {
     await ausfuehren(() => api("warmwasser/aufheizen", {}));
     if (navigator.vibrate) navigator.vibrate(80);
-    melde("Das Wasser wird aufgeheizt.", "ok");
-    knopf.textContent = "Heizt gerade auf …";
-    $("#ww-status").textContent = "Gestartet. Die Wärmepumpe meldet sich gleich.";
+    melde("Aufheizen angefordert.", "ok");
+    knopf.textContent = "Aufheizen angefordert";
+    $("#ww-status").textContent = "Angefordert. Die Wärmepumpe meldet sich gleich.";
     // Die Waermepumpe meldet die Ladung erst nach einer Weile
     setTimeout(() => { wwStartet = false; warmwasserLaden(); }, 60000);
   } catch {

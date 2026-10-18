@@ -71,6 +71,8 @@ ZWEI_FAKTOR_PFLICHT = os.environ.get("ZWEI_FAKTOR_PFLICHT", "true").lower() == "
 WARMWASSER_ENTITAET = os.environ.get("WARMWASSER_ENTITAET", "").strip()
 WARMWASSER_TEMPERATUR = os.environ.get("WARMWASSER_TEMPERATUR", "").strip()
 WARMWASSER_LAEUFT = os.environ.get("WARMWASSER_LAEUFT", "").strip()
+WARMWASSER_HEIZT = os.environ.get("WARMWASSER_HEIZT", "").strip()
+WARMWASSER_SOLL = os.environ.get("WARMWASSER_SOLL", "").strip()
 STAUBSAUGER_ENTITAET = os.environ.get("STAUBSAUGER_ENTITAET", "").strip()
 STAUBSAUGER_BATTERIE = os.environ.get("STAUBSAUGER_BATTERIE", "").strip()
 KAMERA_ENTITAET = os.environ.get("KAMERA_ENTITAET", "").strip()
@@ -1030,8 +1032,25 @@ def familie_fehler(b, entitaet):
     return None
 
 
+def zahl_lesen(entitaet):
+    z = zustand_lesen(entitaet)
+    try:
+        return round(float(z.get("state")), 1) if z else None
+    except (TypeError, ValueError):
+        return None  # "unavailable"
+
+
+def an_aus_lesen(entitaet):
+    z = zustand_lesen(entitaet)
+    return z["state"] == "on" if z and z.get("state") in ("on", "off") else None
+
+
+def grad(wert):
+    return f"{wert:g} °C".replace(".", ",")
+
+
 def warmwasser_zustand():
-    temperatur = einheit = laeuft = None
+    temperatur = einheit = None
     z = zustand_lesen(WARMWASSER_TEMPERATUR)
     if z:
         try:
@@ -1039,10 +1058,17 @@ def warmwasser_zustand():
             einheit = (z.get("attributes") or {}).get("unit_of_measurement") or "°C"
         except (TypeError, ValueError):
             pass  # "unavailable" - dann eben keine Anzeige
-    z = zustand_lesen(WARMWASSER_LAEUFT)
-    if z and z.get("state") in ("on", "off"):
-        laeuft = z["state"] == "on"
-    return {"temperatur": temperatur, "einheit": einheit, "laeuft": laeuft}
+    laeuft = an_aus_lesen(WARMWASSER_LAEUFT)
+    # "Ladung an" heisst noch nicht, dass geheizt wird: ist das Wasser schon
+    # warm genug, wartet die Waermepumpe. Geheizt wird, wenn dazu der
+    # Kompressor laeuft.
+    heizt = laeuft
+    if laeuft and WARMWASSER_HEIZT:
+        heizt = an_aus_lesen(WARMWASSER_HEIZT)
+    return {
+        "temperatur": temperatur, "einheit": einheit, "laeuft": laeuft, "heizt": heizt,
+        "soll": zahl_lesen(WARMWASSER_SOLL) if WARMWASSER_SOLL else None,
+    }
 
 
 @app.get("/api/warmwasser")
@@ -1061,8 +1087,13 @@ def api_warmwasser_aufheizen(b):
     with _warmwasser_sperre:
         if time.time() - _zuletzt_aufgeheizt["t"] < WARMWASSER_ABKLINGZEIT_S:
             return fehler("Das Aufheizen wurde gerade erst gestartet.", 429)
-        if warmwasser_zustand()["laeuft"]:
-            return fehler("Das Wasser wird gerade schon aufgeheizt.", 409)
+        z = warmwasser_zustand()
+        if z["laeuft"]:
+            return fehler("Das Aufheizen ist schon angefordert.", 409)
+        # Eine Ladung ueber dem Sollwert bewirkt nichts - lieber gleich sagen
+        if z["temperatur"] is not None and z["soll"] is not None and z["temperatur"] >= z["soll"]:
+            return fehler(f"Das Wasser hat schon {grad(z['temperatur'])} – mehr als die eingestellten "
+                          f"{grad(z['soll'])}. Aufheizen bringt gerade nichts.", 409)
         try:
             ausloesen(WARMWASSER_ENTITAET)
         except Exception as fehl:  # noqa: BLE001
@@ -1199,6 +1230,7 @@ def api_admin_uebersicht():
     return jsonify({
         "benutzer": benutzer,
         "protokoll": eintraege,
+        "warmwasser": warmwasser_ziel_daten(),
         "einstellungen": {
             "tuer_entitaet": TUER_ENTITAET,
             "entitaet_typ_ok": TUER_ENTITAET.split(".", 1)[0] in DIENSTE,
@@ -1212,6 +1244,8 @@ def api_admin_uebersicht():
             "warmwasser_typ_ok": not WARMWASSER_ENTITAET or WARMWASSER_ENTITAET.split(".", 1)[0] in DIENSTE,
             "warmwasser_temperatur": WARMWASSER_TEMPERATUR,
             "warmwasser_laeuft": WARMWASSER_LAEUFT,
+            "warmwasser_soll": WARMWASSER_SOLL,
+            "warmwasser_heizt": WARMWASSER_HEIZT,
             "staubsauger_entitaet": STAUBSAUGER_ENTITAET,
             "staubsauger_typ_ok": not STAUBSAUGER_ENTITAET or STAUBSAUGER_ENTITAET.startswith("vacuum."),
             "staubsauger_batterie": STAUBSAUGER_BATTERIE,
@@ -1261,6 +1295,47 @@ def api_admin_benutzer(bid, aktion):
         db().execute("DELETE FROM benutzer WHERE id = ?", (bid,))
     db().commit()
     protokollieren(f"admin_{aktion}", None, f"{b['name']} ({b['email']})", name="Admin")
+    return jsonify({"ok": True})
+
+
+def warmwasser_ziel_daten():
+    """Fuer die Verwaltung: Speichertemperatur und die einstellbare
+    Zieltemperatur mit ihren Grenzen aus der number-Entitaet."""
+    if not WARMWASSER_SOLL:
+        return None
+    z = zustand_lesen(WARMWASSER_SOLL) or {}
+    a = z.get("attributes") or {}
+    try:
+        ziel = float(z.get("state"))
+    except (TypeError, ValueError):
+        ziel = None
+    return {
+        "ziel": ziel,
+        "min": a.get("min", 30), "max": a.get("max", 60), "schritt": a.get("step", 1),
+        "temperatur": zahl_lesen(WARMWASSER_TEMPERATUR) if WARMWASSER_TEMPERATUR else None,
+        "laeuft": an_aus_lesen(WARMWASSER_LAEUFT) if WARMWASSER_LAEUFT else None,
+    }
+
+
+@app.post("/api/admin/warmwasser/ziel")
+@nur_ingress
+def api_admin_warmwasser_ziel():
+    daten = warmwasser_ziel_daten()
+    if not daten:
+        return fehler("Keine Entität für die Zieltemperatur eingestellt.", 404)
+    try:
+        wert = float(json_eingabe().get("wert"))
+    except (TypeError, ValueError):
+        return fehler("Bitte eine Zahl angeben.")
+    if not daten["min"] <= wert <= daten["max"]:
+        return fehler(f"Erlaubt sind {grad(daten['min'])} bis {grad(daten['max'])}.")
+    try:
+        ha_aufruf("POST", "/services/number/set_value", {"entity_id": WARMWASSER_SOLL, "value": wert})
+    except Exception as fehl:  # noqa: BLE001
+        log.error("Zieltemperatur nicht gesetzt: %s", fehl)
+        return fehler("Die Wärmepumpe hat die Temperatur nicht übernommen.", 502)
+    protokollieren("admin_warmwasser_ziel", None, f"{grad(daten['ziel']) if daten['ziel'] is not None else '?'}"
+                   f" → {grad(wert)}", name="Admin")
     return jsonify({"ok": True})
 
 

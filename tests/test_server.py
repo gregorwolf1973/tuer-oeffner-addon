@@ -25,6 +25,8 @@ os.environ.update(
     WARMWASSER_ENTITAET="button.einmalige_ladung",
     WARMWASSER_TEMPERATUR="sensor.ww_temperatur",
     WARMWASSER_LAEUFT="binary_sensor.ww_laedt",
+    WARMWASSER_HEIZT="binary_sensor.kompressor",
+    WARMWASSER_SOLL="number.ww_ziel",
     STAUBSAUGER_ENTITAET="vacuum.sauger",
     STAUBSAUGER_BATTERIE="sensor.sauger_akku",
     KAMERA_ENTITAET="camera.haustuer",
@@ -68,6 +70,8 @@ def sauber():
     ZUSTAENDE.update({
         "sensor.ww_temperatur": {"state": "41.25", "attributes": {"unit_of_measurement": "°C"}},
         "binary_sensor.ww_laedt": {"state": "off", "attributes": {}},
+        "binary_sensor.kompressor": {"state": "off", "attributes": {}},
+        "number.ww_ziel": {"state": "50", "attributes": {"min": 10, "max": 60, "step": 1}},
         "vacuum.sauger": {"state": "docked", "attributes": {"battery_level": 50}},
         "sensor.sauger_akku": {"state": "87", "attributes": {}},
     })
@@ -511,7 +515,8 @@ def test_warmwasser_anzeige_und_aufheizen(client, ha):
     registrieren(client)
     freigeben("anna@example.org", familie=True)
     assert client.get("/api/status").json["warmwasser"] is True
-    assert client.get("/api/warmwasser").json == {"temperatur": 41.2, "einheit": "°C", "laeuft": False}
+    assert client.get("/api/warmwasser").json == {
+        "temperatur": 41.2, "einheit": "°C", "laeuft": False, "heizt": False, "soll": 50.0}
     r = post(client, "/api/warmwasser/aufheizen")
     assert r.status_code == 200, r.json
     assert len(aufgeheizt(ha)) == 1
@@ -532,12 +537,47 @@ def test_warmwasser_laeuft_schon(client, ha):
     assert not aufgeheizt(ha)
 
 
+def test_warmwasser_heizt_nur_mit_kompressor(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    ZUSTAENDE["binary_sensor.ww_laedt"]["state"] = "on"
+    d = client.get("/api/warmwasser").json
+    assert d["laeuft"] is True and d["heizt"] is False
+    ZUSTAENDE["binary_sensor.kompressor"]["state"] = "on"
+    assert client.get("/api/warmwasser").json["heizt"] is True
+
+
+def test_warmwasser_schon_warm_genug(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    ZUSTAENDE["sensor.ww_temperatur"]["state"] = "51.2"
+    r = post(client, "/api/warmwasser/aufheizen")
+    assert r.status_code == 409 and "51,2 °C" in r.json["fehler"] and "50 °C" in r.json["fehler"]
+    assert not aufgeheizt(ha)
+
+
+def test_admin_warmwasser_ziel(client, ha):
+    admin = server.app.test_client()
+    d = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["warmwasser"]
+    assert d == {"ziel": 50.0, "min": 10, "max": 60, "schritt": 1, "temperatur": 41.2, "laeuft": False}
+    r = post(admin, "/api/admin/warmwasser/ziel", {"wert": 55}, environ_base=INGRESS)
+    assert r.status_code == 200
+    assert ("POST", "/services/number/set_value", {"entity_id": "number.ww_ziel", "value": 55.0}) in ha
+    assert post(admin, "/api/admin/warmwasser/ziel", {"wert": 75}, environ_base=INGRESS).status_code == 400
+    assert post(admin, "/api/admin/warmwasser/ziel", {"wert": "heiss"}, environ_base=INGRESS).status_code == 400
+    # Nicht aus der App heraus
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    assert post(client, "/api/admin/warmwasser/ziel", {"wert": 55}).status_code == 404
+
+
 def test_warmwasser_sensor_nicht_verfuegbar(client, ha):
     registrieren(client)
     freigeben("anna@example.org", familie=True)
     ZUSTAENDE["sensor.ww_temperatur"] = {"state": "unavailable", "attributes": {}}
     del ZUSTAENDE["binary_sensor.ww_laedt"]
-    assert client.get("/api/warmwasser").json == {"temperatur": None, "einheit": None, "laeuft": None}
+    assert client.get("/api/warmwasser").json == {
+        "temperatur": None, "einheit": None, "laeuft": None, "heizt": None, "soll": 50.0}
     # Ohne Lade-Anzeige wird trotzdem aufgeheizt
     assert post(client, "/api/warmwasser/aufheizen").status_code == 200
     assert len(aufgeheizt(ha)) == 1

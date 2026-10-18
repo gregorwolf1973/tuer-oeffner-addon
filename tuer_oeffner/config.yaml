@@ -1,5 +1,5 @@
 name: Türöffner
-version: "0.6.0"
+version: "0.7.0"
 slug: tuer_oeffner
 # Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
 # jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
@@ -37,6 +37,8 @@ options:
   warmwasser_entitaet: "button.e3_vitocal_einmalige_aufladung_aktivieren"
   warmwasser_temperatur: "sensor.e3_vitocal_ww_speichertemperatur"
   warmwasser_laeuft: "binary_sensor.e3_vitocal_einmalige_ladung"
+  warmwasser_heizt: "binary_sensor.e3_vitocal_kompressor"
+  warmwasser_soll: "number.e3_vitocal_ww_temperatur"
   staubsauger_entitaet: "vacuum.roborock_s7_maxv_2"
   staubsauger_batterie: "sensor.roborock_s7_maxv_2_batterie"
   kamera_entitaet: "camera.t62_mainstream"
@@ -57,6 +59,8 @@ schema:
   warmwasser_entitaet: str?
   warmwasser_temperatur: str?
   warmwasser_laeuft: str?
+  warmwasser_heizt: str?
+  warmwasser_soll: str?
   staubsauger_entitaet: str?
   staubsauger_batterie: str?
   kamera_entitaet: str?
