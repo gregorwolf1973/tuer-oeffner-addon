@@ -74,7 +74,8 @@ async function laden() {
   $("#oeffnen").hidden = zustand.status !== "aktiv";
   $("#fern").hidden = !zustand.fern;
   $("#warmwasser").hidden = !zustand.warmwasser;
-  if (zustand.warmwasser) warmwasserLaden();
+  $("#staubsauger").hidden = !zustand.staubsauger;
+  familieLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
   const liste = $("#passkeys");
@@ -397,13 +398,50 @@ $("#ww-aufheizen").addEventListener("click", async () => {
   }
 });
 
-// Temperatur aktuell halten, solange die App offen ist
-setInterval(() => {
-  if (!document.hidden && !$("#warmwasser").hidden) warmwasserLaden();
-}, 30000);
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && !$("#warmwasser").hidden) warmwasserLaden();
-});
+/* ---------- Staubsauger ---------- */
+
+const SAUGER_TEXT = {
+  cleaning: "Saugt gerade", docked: "In der Station", returning: "Fährt zur Station",
+  idle: "Steht bereit", paused: "Pausiert", error: "Hat einen Fehler – bitte nachsehen",
+};
+
+function staubsaugerZeigen(d) {
+  $("#sg-batterie").textContent = d.batterie == null ? "–" : `🔋 ${d.batterie} %`;
+  $("#sg-status").textContent = d.zustand == null
+    ? "Gerade nicht erreichbar"
+    : SAUGER_TEXT[d.zustand] || d.zustand;
+  $('[data-saug="start"]').disabled = d.zustand === "cleaning";
+  $('[data-saug="zur_station"]').disabled = d.zustand === "docked" || d.zustand === "returning";
+}
+
+async function staubsaugerLaden() {
+  try {
+    staubsaugerZeigen(await api("staubsauger"));
+  } catch { /* Anzeige bleibt, wie sie war */ }
+}
+
+$$("[data-saug]").forEach((knopf) => knopf.addEventListener("click", async () => {
+  const befehl = knopf.dataset.saug;
+  $$("[data-saug]").forEach((k) => (k.disabled = true));
+  try {
+    await ausfuehren(() => api("staubsauger/" + befehl, {}));
+    if (navigator.vibrate) navigator.vibrate(80);
+    melde(befehl === "start" ? "Der Staubsauger legt los." : "Der Staubsauger fährt zur Station.", "ok");
+    $("#sg-status").textContent = befehl === "start" ? "Startet …" : "Fährt zur Station …";
+  } catch { /* Meldung steht schon */ }
+  // Der Sauger meldet den neuen Zustand mit etwas Verzoegerung
+  setTimeout(staubsaugerLaden, 6000);
+}));
+
+/* ---------- Familie: Anzeigen aktuell halten ---------- */
+
+function familieLaden() {
+  if (!$("#warmwasser").hidden) warmwasserLaden();
+  if (!$("#staubsauger").hidden) staubsaugerLaden();
+}
+
+setInterval(() => { if (!document.hidden) familieLaden(); }, 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) familieLaden(); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 laden();

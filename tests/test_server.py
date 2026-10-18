@@ -25,6 +25,8 @@ os.environ.update(
     WARMWASSER_ENTITAET="button.einmalige_ladung",
     WARMWASSER_TEMPERATUR="sensor.ww_temperatur",
     WARMWASSER_LAEUFT="binary_sensor.ww_laedt",
+    STAUBSAUGER_ENTITAET="vacuum.sauger",
+    STAUBSAUGER_BATTERIE="sensor.sauger_akku",
 )
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tuer_oeffner", "app"))
 server = importlib.import_module("server")
@@ -63,7 +65,10 @@ def sauber():
     ZUSTAENDE.update({
         "sensor.ww_temperatur": {"state": "41.25", "attributes": {"unit_of_measurement": "°C"}},
         "binary_sensor.ww_laedt": {"state": "off", "attributes": {}},
+        "vacuum.sauger": {"state": "docked", "attributes": {"battery_level": 50}},
+        "sensor.sauger_akku": {"state": "87", "attributes": {}},
     })
+    server._zuletzt_gesaugt["t"] = 0.0
     yield
 
 
@@ -110,14 +115,14 @@ def registrieren(c, email="anna@example.org", name="Anna"):
     assert r.status_code == 200, r.json
 
 
-def freigeben(email, fern=False, warmwasser=False):
+def freigeben(email, fern=False, familie=False):
     admin = server.app.test_client()
     bid = benutzer_id(email)
     assert post(admin, f"/api/admin/benutzer/{bid}/freigeben", environ_base=INGRESS).status_code == 200
     if fern:
         assert post(admin, f"/api/admin/benutzer/{bid}/fern_an", environ_base=INGRESS).status_code == 200
-    if warmwasser:
-        assert post(admin, f"/api/admin/benutzer/{bid}/warmwasser_an", environ_base=INGRESS).status_code == 200
+    if familie:
+        assert post(admin, f"/api/admin/benutzer/{bid}/familie_an", environ_base=INGRESS).status_code == 200
 
 
 def nah():
@@ -461,7 +466,7 @@ def test_alte_datenbank_wird_nachgeruestet(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "DB_PFAD", str(pfad))
     server.db_einrichten()
     conn = sqlite3.connect(pfad)
-    assert conn.execute("SELECT email, zwei_faktor, benutzername, warmwasser FROM benutzer ORDER BY id").fetchall() == [
+    assert conn.execute("SELECT email, zwei_faktor, benutzername, familie FROM benutzer ORDER BY id").fetchall() == [
         ("a@x.org", 1, None, 0), ("b@x.org", 0, None, 0)]
     conn.close()
 
@@ -493,14 +498,14 @@ def test_warmwasser_braucht_freigabe(client, ha):
     registrieren(client)
     # Recht schon erteilt, aber noch nicht freigegeben
     admin = server.app.test_client()
-    post(admin, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/warmwasser_an", environ_base=INGRESS)
+    post(admin, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/familie_an", environ_base=INGRESS)
     assert client.get("/api/status").json["warmwasser"] is False
     assert post(client, "/api/warmwasser/aufheizen").status_code == 403
 
 
 def test_warmwasser_anzeige_und_aufheizen(client, ha):
     registrieren(client)
-    freigeben("anna@example.org", warmwasser=True)
+    freigeben("anna@example.org", familie=True)
     assert client.get("/api/status").json["warmwasser"] is True
     assert client.get("/api/warmwasser").json == {"temperatur": 41.2, "einheit": "°C", "laeuft": False}
     r = post(client, "/api/warmwasser/aufheizen")
@@ -516,7 +521,7 @@ def test_warmwasser_anzeige_und_aufheizen(client, ha):
 
 def test_warmwasser_laeuft_schon(client, ha):
     registrieren(client)
-    freigeben("anna@example.org", warmwasser=True)
+    freigeben("anna@example.org", familie=True)
     ZUSTAENDE["binary_sensor.ww_laedt"]["state"] = "on"
     assert client.get("/api/warmwasser").json["laeuft"] is True
     assert post(client, "/api/warmwasser/aufheizen").status_code == 409
@@ -525,7 +530,7 @@ def test_warmwasser_laeuft_schon(client, ha):
 
 def test_warmwasser_sensor_nicht_verfuegbar(client, ha):
     registrieren(client)
-    freigeben("anna@example.org", warmwasser=True)
+    freigeben("anna@example.org", familie=True)
     ZUSTAENDE["sensor.ww_temperatur"] = {"state": "unavailable", "attributes": {}}
     del ZUSTAENDE["binary_sensor.ww_laedt"]
     assert client.get("/api/warmwasser").json == {"temperatur": None, "einheit": None, "laeuft": None}
@@ -537,29 +542,99 @@ def test_warmwasser_sensor_nicht_verfuegbar(client, ha):
 def test_warmwasser_aus_ohne_entitaet(client, ha, monkeypatch):
     monkeypatch.setattr(server, "WARMWASSER_ENTITAET", "")
     registrieren(client)
-    freigeben("anna@example.org", warmwasser=True)
+    freigeben("anna@example.org", familie=True)
     assert client.get("/api/status").json["warmwasser"] is False
-    assert post(client, "/api/warmwasser/aufheizen").status_code == 403
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 404
+    # Der Staubsauger bleibt davon unberuehrt
+    assert client.get("/api/status").json["staubsauger"] is True
 
 
 def test_warmwasser_recht_entziehen_und_sperren(client, ha):
     registrieren(client)
-    freigeben("anna@example.org", warmwasser=True)
+    freigeben("anna@example.org", familie=True)
     admin = server.app.test_client()
     bid = benutzer_id("anna@example.org")
     b = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["benutzer"][0]
-    assert b["warmwasser"] == 1
-    post(admin, f"/api/admin/benutzer/{bid}/warmwasser_aus", environ_base=INGRESS)
+    assert b["familie"] == 1
+    post(admin, f"/api/admin/benutzer/{bid}/familie_aus", environ_base=INGRESS)
     assert client.get("/api/status").json["warmwasser"] is False
-    post(admin, f"/api/admin/benutzer/{bid}/warmwasser_an", environ_base=INGRESS)
+    post(admin, f"/api/admin/benutzer/{bid}/familie_an", environ_base=INGRESS)
     post(admin, f"/api/admin/benutzer/{bid}/sperren", environ_base=INGRESS)
     assert post(client, "/api/warmwasser/aufheizen").status_code == 401
 
 
 def test_warmwasser_admin_nur_ingress(client, ha):
     registrieren(client)
-    r = post(client, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/warmwasser_an")
+    r = post(client, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/familie_an")
     assert r.status_code == 404
+
+
+def test_familie_aus_0_3_0_uebernommen(monkeypatch, tmp_path):
+    import sqlite3
+    pfad = tmp_path / "tuer.db"
+    conn = sqlite3.connect(pfad)
+    conn.executescript(server.SCHEMA.replace("familie INTEGER", "warmwasser INTEGER"))
+    conn.execute("INSERT INTO benutzer (name, email, pw_hash, webauthn_id, angelegt, warmwasser) VALUES"
+                 " ('A','a@x.org','-','w1',0,1), ('B','b@x.org','-','w2',0,0)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(server, "DB_PFAD", str(pfad))
+    server.db_einrichten()
+    conn = sqlite3.connect(pfad)
+    assert conn.execute("SELECT email, familie FROM benutzer ORDER BY id").fetchall() == [("a@x.org", 1), ("b@x.org", 0)]
+    conn.close()
+
+
+# ------------------------------------------------------------------
+# Staubsauger
+
+
+def sauger_befehle(ha):
+    return [p.removeprefix("/services/vacuum/") for _, p, d in ha
+            if p.startswith("/services/vacuum/") and d["entity_id"] == "vacuum.sauger"]
+
+
+def test_staubsauger_nur_familie(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org")
+    assert client.get("/api/status").json["staubsauger"] is False
+    assert client.get("/api/staubsauger").status_code == 403
+    assert post(client, "/api/staubsauger/start").status_code == 403
+    assert not sauger_befehle(ha)
+
+
+def test_staubsauger_anzeige_starten_und_zurueck(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    s = client.get("/api/status").json
+    assert s["familie"] is True and s["staubsauger"] is True and s["warmwasser"] is True
+    # Akku aus dem eigenen Sensor, nicht aus dem Attribut
+    assert client.get("/api/staubsauger").json == {"zustand": "docked", "batterie": 87}
+    assert post(client, "/api/staubsauger/start").status_code == 200
+    # Gleich danach gebremst
+    assert post(client, "/api/staubsauger/zur_station").status_code == 429
+    server._zuletzt_gesaugt["t"] = 0.0
+    assert post(client, "/api/staubsauger/zur_station").status_code == 200
+    assert sauger_befehle(ha) == ["start", "return_to_base"]
+    admin = server.app.test_client()
+    aktionen = [p["aktion"] for p in admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["protokoll"]]
+    assert aktionen[:2] == ["staubsauger_zur_station", "staubsauger_start"]
+
+
+def test_staubsauger_unbekannter_befehl(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    assert post(client, "/api/staubsauger/turbo").status_code == 404
+    assert not sauger_befehle(ha)
+
+
+def test_staubsauger_akku_aus_attribut_und_nicht_erreichbar(client, ha, monkeypatch):
+    monkeypatch.setattr(server, "STAUBSAUGER_BATTERIE", "")
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    assert client.get("/api/staubsauger").json == {"zustand": "docked", "batterie": 50}
+    ZUSTAENDE["vacuum.sauger"] = {"state": "unavailable", "attributes": {}}
+    assert client.get("/api/staubsauger").json == {"zustand": None, "batterie": None}
 
 
 def test_sicherheitskoepfe(client, ha):

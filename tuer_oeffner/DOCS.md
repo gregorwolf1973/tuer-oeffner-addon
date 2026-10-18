@@ -19,14 +19,19 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   geöffnet wird nur bis zum eingestellten Radius um die Haustür.
 - **Fern-Recht:** Ausgewählte Zugänge bekommen einen zweiten, lila
   Schieber „Aus der Ferne öffnen“ – ohne Standortprüfung.
-- **Warmwasser für die Familie:** Zugänge mit dem Recht „Warmwasser“ sehen
-  in der App die Speichertemperatur und einen Knopf „Wasser aufheizen“. Er
-  startet die einmalige Ladung der Wärmepumpe – von überall, ohne
-  Standortprüfung. Läuft schon eine Ladung, ist der Knopf gesperrt.
+- **Für die Familie:** Zugänge, die du in der Verwaltung zur **Familie**
+  hinzufügst, sehen in der App zusätzlich
+  - **Warmwasser:** die Speichertemperatur und einen Knopf „Wasser
+    aufheizen“. Er startet die einmalige Ladung der Wärmepumpe. Läuft schon
+    eine Ladung, ist der Knopf gesperrt.
+  - **Staubsauger:** Status und Akku, dazu „Saugen starten“ und „Zur
+    Station“.
+
+  Beides geht von überall, ohne Standortprüfung.
 - **Benachrichtigung** an dich bei jedem Öffnen und jeder neuen
   Registrierung.
 - **Verwaltung** nur hier in Home Assistant (Seitenleiste „Türöffner“):
-  freigeben, Fern-Recht, Warmwasser-Recht, sperren, 2FA zurücksetzen, löschen, Protokoll und
+  freigeben, Fern-Recht, Familie, sperren, 2FA zurücksetzen, löschen, Protokoll und
   ein Knopf zum Testen. Aus dem Internet ist die Verwaltung nicht
   erreichbar.
 
@@ -50,8 +55,9 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 6. Selbst registrieren, in der Verwaltung freigeben und dir das Fern-Recht
    geben. Dann den Freunden die Adresse schicken.
 7. **Familie:** Jeder registriert sich genauso. In der Verwaltung freigeben
-   und „Warmwasser erlauben“ drücken. Die drei Warmwasser-Optionen sind für
-   die Viessmann-Wärmepumpe (ViCare) schon ausgefüllt.
+   und in der Spalte **„Familie“** auf „Hinzufügen“ drücken – auch bei dir
+   selbst. Die Optionen für die Viessmann-Wärmepumpe (ViCare) und den
+   Roborock sind schon ausgefüllt.
 
 ## Optionen
 
@@ -68,6 +74,8 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `warmwasser_entitaet` | was das Aufheizen startet (gleiche Typen wie bei der Tür), leer = keine Warmwasser-Funktion |
 | `warmwasser_temperatur` | Sensor für die Temperaturanzeige in der App, leer = keine Anzeige |
 | `warmwasser_laeuft` | binary_sensor, der an ist, solange aufgeheizt wird – verhindert doppeltes Starten |
+| `staubsauger_entitaet` | der Saugroboter (`vacuum.…`), leer = keine Staubsauger-Karte |
+| `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
 
 ## Sicherheit
 
@@ -84,7 +92,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 - Passwort vergessen: den Zugang löschen, der Freund registriert sich neu.
 - Zwischen zwei Öffnungen liegen mindestens 8 Sekunden, zwischen zweimal
   Aufheizen mindestens eine Minute.
-- Das Warmwasser-Recht gilt nur für freigegebene Zugänge. Sperren nimmt es
+- Das Familien-Recht gilt nur für freigegebene Zugänge. Sperren nimmt es
   sofort mit weg.
 - Die Standortprüfung schützt vor **versehentlichem** Öffnen von unterwegs.
   Gegen jemanden, der seinen Standort fälscht, schützt sie nicht – dagegen

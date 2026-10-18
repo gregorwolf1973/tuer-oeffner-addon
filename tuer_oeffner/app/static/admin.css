@@ -12,6 +12,7 @@ td .knopf { margin: 2px 4px 2px 0; }
 .status.gesperrt { background: var(--schlecht-grund); color: var(--schlecht); }
 .status.neu { background: var(--grund); color: var(--leise); }
 .knopf.gefahr { color: var(--schlecht); }
+.knopf.an { background: var(--gut-grund); color: var(--gut); border-color: var(--gut); white-space: nowrap; }
 .einstellungen-liste { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
 .einstellungen-liste dt { color: var(--leise); }
 .einstellungen-liste dd { margin: 0; }

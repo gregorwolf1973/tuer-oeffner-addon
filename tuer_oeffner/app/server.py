@@ -18,9 +18,9 @@ Zwei Gesichter, ein Prozess:
 Die Tuer selbst schaltet Home Assistant: das Add-on ruft ueber die
 Supervisor-API einen Dienst fuer die eingestellte Entitaet auf.
 
-Dazu, fuer die Familie: Warmwasser aufheizen. Wer vom Admin das Recht
-"Warmwasser" bekommt, sieht in der App die Speichertemperatur und einen
-Knopf, der z. B. die einmalige Ladung der Waermepumpe ausloest.
+Dazu, fuer die Familie: Wer vom Admin das Recht "Familie" bekommt, sieht
+in der App die Speichertemperatur mit einem Knopf, der z. B. die einmalige
+Ladung der Waermepumpe ausloest, und den Staubsauger (starten, zur Station).
 """
 
 import json
@@ -69,6 +69,8 @@ ZWEI_FAKTOR_PFLICHT = os.environ.get("ZWEI_FAKTOR_PFLICHT", "true").lower() == "
 WARMWASSER_ENTITAET = os.environ.get("WARMWASSER_ENTITAET", "").strip()
 WARMWASSER_TEMPERATUR = os.environ.get("WARMWASSER_TEMPERATUR", "").strip()
 WARMWASSER_LAEUFT = os.environ.get("WARMWASSER_LAEUFT", "").strip()
+STAUBSAUGER_ENTITAET = os.environ.get("STAUBSAUGER_ENTITAET", "").strip()
+STAUBSAUGER_BATTERIE = os.environ.get("STAUBSAUGER_BATTERIE", "").strip()
 INGRESS_ADRESSEN = {a.strip() for a in os.environ.get("INGRESS_ADRESSEN", "172.30.32.2").split(",") if a.strip()}
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 HA_API = os.environ.get("HA_API", "http://supervisor/core/api")
@@ -86,6 +88,7 @@ ABKLINGZEIT_S = 8
 # Die Waermepumpe braucht einen Moment, bis die Ladung als "laeuft" sichtbar
 # ist - so loest ein ungeduldiges Doppeltippen nicht zweimal aus
 WARMWASSER_ABKLINGZEIT_S = 60
+STAUBSAUGER_ABKLINGZEIT_S = 5
 # Die Ungenauigkeit des Standorts zaehlt hoechstens bis hierhin zugunsten
 # des Benutzers. Sonst "oeffnete" ein Handy mit 5 km Ungenauigkeit ueberall.
 GENAUIGKEIT_MAX_M = 100
@@ -148,8 +151,8 @@ CREATE TABLE IF NOT EXISTS benutzer (
     -- wartet: auf Freigabe | aktiv | gesperrt
     status TEXT NOT NULL DEFAULT 'neu',
     fern INTEGER NOT NULL DEFAULT 0,
-    -- 1 = darf das Warmwasser aufheizen (Familie)
-    warmwasser INTEGER NOT NULL DEFAULT 0,
+    -- 1 = Familie: Warmwasser und Staubsauger
+    familie INTEGER NOT NULL DEFAULT 0,
     -- 1 = bei der Anmeldung wird nach dem Passwort ein Code verlangt
     zwei_faktor INTEGER NOT NULL DEFAULT 0,
     totp_geheimnis TEXT,
@@ -218,8 +221,11 @@ def db_einrichten():
     if "zwei_faktor" not in spalten:
         conn.execute("ALTER TABLE benutzer ADD COLUMN zwei_faktor INTEGER NOT NULL DEFAULT 0")
         conn.execute("UPDATE benutzer SET zwei_faktor = 1 WHERE status != 'neu'")
-    if "warmwasser" not in spalten:
-        conn.execute("ALTER TABLE benutzer ADD COLUMN warmwasser INTEGER NOT NULL DEFAULT 0")
+    if "familie" not in spalten:
+        conn.execute("ALTER TABLE benutzer ADD COLUMN familie INTEGER NOT NULL DEFAULT 0")
+        # 0.3.0 kannte nur das Recht "warmwasser" - es wird zu "Familie"
+        if "warmwasser" in spalten:
+            conn.execute("UPDATE benutzer SET familie = warmwasser")
     conn.execute("DELETE FROM protokoll WHERE zeit < ?", (int(time.time()) - PROTOKOLL_TAGE * 86400,))
     conn.commit()
     conn.close()
@@ -512,7 +518,9 @@ def api_status():
             email=b["email"],
             zwei_faktor=bool(b["zwei_faktor"]),
             fern=bool(b["fern"]),
-            warmwasser=darf_warmwasser(b),
+            familie=ist_familie(b),
+            warmwasser=ist_familie(b) and bool(WARMWASSER_ENTITAET),
+            staubsauger=ist_familie(b) and bool(STAUBSAUGER_ENTITAET),
             radius=RADIUS_METER,
         )
         if session.get("stufe") == "voll":
@@ -982,15 +990,23 @@ def api_oeffnen(b):
 
 
 # ------------------------------------------------------------------
-# Warmwasser
+# Familie: Warmwasser und Staubsauger
 # ------------------------------------------------------------------
 
 _warmwasser_sperre = threading.Lock()
 _zuletzt_aufgeheizt = {"t": 0.0}
 
 
-def darf_warmwasser(b):
-    return bool(WARMWASSER_ENTITAET and b["warmwasser"] and b["status"] == "aktiv")
+def ist_familie(b):
+    return bool(b["familie"] and b["status"] == "aktiv")
+
+
+def familie_fehler(b, entitaet):
+    if not entitaet:
+        return fehler("Das ist hier nicht eingerichtet.", 404)
+    if not ist_familie(b):
+        return fehler("Das dürfen nur Zugänge der Familie.", 403)
+    return None
 
 
 def warmwasser_zustand():
@@ -1011,16 +1027,16 @@ def warmwasser_zustand():
 @app.get("/api/warmwasser")
 @braucht("voll")
 def api_warmwasser(b):
-    if not darf_warmwasser(b):
-        return fehler("Dein Zugang darf das Warmwasser nicht aufheizen.", 403)
+    if (f := familie_fehler(b, WARMWASSER_ENTITAET)):
+        return f
     return jsonify(warmwasser_zustand())
 
 
 @app.post("/api/warmwasser/aufheizen")
 @braucht("voll")
 def api_warmwasser_aufheizen(b):
-    if not darf_warmwasser(b):
-        return fehler("Dein Zugang darf das Warmwasser nicht aufheizen.", 403)
+    if (f := familie_fehler(b, WARMWASSER_ENTITAET)):
+        return f
     with _warmwasser_sperre:
         if time.time() - _zuletzt_aufgeheizt["t"] < WARMWASSER_ABKLINGZEIT_S:
             return fehler("Das Aufheizen wurde gerade erst gestartet.", 429)
@@ -1038,6 +1054,62 @@ def api_warmwasser_aufheizen(b):
     return jsonify({"ok": True})
 
 
+_staubsauger_sperre = threading.Lock()
+_zuletzt_gesaugt = {"t": 0.0}
+
+# Befehl in der App -> Dienst der vacuum-Domain
+STAUBSAUGER_BEFEHLE = {"start": "start", "zur_station": "return_to_base"}
+
+
+def staubsauger_zustand():
+    zustand = batterie = None
+    z = zustand_lesen(STAUBSAUGER_ENTITAET)
+    if z:
+        zustand = z.get("state")
+        batterie = (z.get("attributes") or {}).get("battery_level")
+    z = zustand_lesen(STAUBSAUGER_BATTERIE)
+    if z:
+        batterie = z.get("state")
+    try:
+        batterie = round(float(batterie))
+    except (TypeError, ValueError):
+        batterie = None
+    if zustand in ("unavailable", "unknown"):
+        zustand = None
+    return {"zustand": zustand, "batterie": batterie}
+
+
+@app.get("/api/staubsauger")
+@braucht("voll")
+def api_staubsauger(b):
+    if (f := familie_fehler(b, STAUBSAUGER_ENTITAET)):
+        return f
+    return jsonify(staubsauger_zustand())
+
+
+@app.post("/api/staubsauger/<befehl>")
+@braucht("voll")
+def api_staubsauger_befehl(b, befehl):
+    if befehl not in STAUBSAUGER_BEFEHLE:
+        abort(404)
+    if (f := familie_fehler(b, STAUBSAUGER_ENTITAET)):
+        return f
+    with _staubsauger_sperre:
+        if time.time() - _zuletzt_gesaugt["t"] < STAUBSAUGER_ABKLINGZEIT_S:
+            return fehler("Einen Moment – der Staubsauger hat gerade erst einen Befehl bekommen.", 429)
+        try:
+            ha_aufruf("POST", f"/services/vacuum/{STAUBSAUGER_BEFEHLE[befehl]}",
+                      {"entity_id": STAUBSAUGER_ENTITAET})
+        except Exception as fehl:  # noqa: BLE001
+            log.error("Staubsauger nicht geschaltet: %s", fehl)
+            protokollieren("fehler", b, f"Staubsauger: {fehl}")
+            return fehler("Der Staubsauger reagiert nicht. Bitte Bescheid geben.", 502)
+        _zuletzt_gesaugt["t"] = time.time()
+    protokollieren(f"staubsauger_{befehl}", b)
+    log.info("Staubsauger %s von %s", befehl, b["name"])
+    return jsonify({"ok": True})
+
+
 # ------------------------------------------------------------------
 # Verwaltung (nur Ingress)
 # ------------------------------------------------------------------
@@ -1047,7 +1119,7 @@ def api_warmwasser_aufheizen(b):
 @nur_ingress
 def api_admin_uebersicht():
     benutzer = [
-        {k: r[k] for k in ("id", "name", "benutzername", "email", "status", "fern", "warmwasser", "zwei_faktor",
+        {k: r[k] for k in ("id", "name", "benutzername", "email", "status", "fern", "familie", "zwei_faktor",
                            "angelegt", "freigegeben", "zuletzt_geoeffnet")}
         | {"passkeys": r["n_pk"]}
         for r in db().execute(
@@ -1074,11 +1146,14 @@ def api_admin_uebersicht():
             "warmwasser_typ_ok": not WARMWASSER_ENTITAET or WARMWASSER_ENTITAET.split(".", 1)[0] in DIENSTE,
             "warmwasser_temperatur": WARMWASSER_TEMPERATUR,
             "warmwasser_laeuft": WARMWASSER_LAEUFT,
+            "staubsauger_entitaet": STAUBSAUGER_ENTITAET,
+            "staubsauger_typ_ok": not STAUBSAUGER_ENTITAET or STAUBSAUGER_ENTITAET.startswith("vacuum."),
+            "staubsauger_batterie": STAUBSAUGER_BATTERIE,
         },
     })
 
 
-AKTIONEN = {"freigeben", "sperren", "entsperren", "fern_an", "fern_aus", "warmwasser_an", "warmwasser_aus",
+AKTIONEN = {"freigeben", "sperren", "entsperren", "fern_an", "fern_aus", "familie_an", "familie_aus",
             "2fa_zuruecksetzen", "loeschen"}
 
 
@@ -1102,8 +1177,8 @@ def api_admin_benutzer(bid, aktion):
         db().execute("UPDATE benutzer SET status = 'aktiv', gesperrt_bis = 0, fehlversuche = 0 WHERE id = ?", (bid,))
     elif aktion in ("fern_an", "fern_aus"):
         db().execute("UPDATE benutzer SET fern = ? WHERE id = ?", (int(aktion == "fern_an"), bid))
-    elif aktion in ("warmwasser_an", "warmwasser_aus"):
-        db().execute("UPDATE benutzer SET warmwasser = ? WHERE id = ?", (int(aktion == "warmwasser_an"), bid))
+    elif aktion in ("familie_an", "familie_aus"):
+        db().execute("UPDATE benutzer SET familie = ? WHERE id = ?", (int(aktion == "familie_an"), bid))
     elif aktion == "2fa_zuruecksetzen":
         # Neues Geheimnis, 2FA aus, Passkeys weg, alle Sitzungen beendet - und
         # wieder Freigabe noetig, denn wer sich jetzt anmeldet, braucht nur
@@ -1147,6 +1222,8 @@ if __name__ == "__main__":
         log.warning("Keine Tuer-Entitaet eingestellt - Oeffnen ist nicht moeglich")
     if WARMWASSER_ENTITAET:
         log.info("Warmwasser: %s", WARMWASSER_ENTITAET)
+    if STAUBSAUGER_ENTITAET:
+        log.info("Staubsauger: %s", STAUBSAUGER_ENTITAET)
     if not passkey_moeglich():
         log.warning("Keine externe https-Adresse eingestellt - Passkeys sind aus")
     serve(app, host="0.0.0.0", port=PORT, threads=8, ident=None)

@@ -42,7 +42,8 @@ const AKTION_TEXT = {
   admin_freigeben: "freigegeben", admin_sperren: "gesperrt", admin_entsperren: "entsperrt",
   admin_fern_an: "Fern-Recht erteilt", admin_fern_aus: "Fern-Recht entzogen",
   warmwasser: "Warmwasser aufgeheizt",
-  admin_warmwasser_an: "Warmwasser-Recht erteilt", admin_warmwasser_aus: "Warmwasser-Recht entzogen",
+  staubsauger_start: "Staubsauger gestartet", staubsauger_zur_station: "Staubsauger zur Station",
+  admin_familie_an: "zur Familie hinzugefügt", admin_familie_aus: "aus der Familie entfernt",
   admin_2fa_zuruecksetzen: "2FA zurückgesetzt", admin_loeschen: "gelöscht",
 };
 
@@ -79,6 +80,11 @@ async function laden() {
   if (!e.heim_bekannt) warn.push("Der Standort der Haustür ist unbekannt – Öffnen in der Nähe geht nicht.");
   if (!e.externe_adresse.startsWith("https://")) warn.push("Keine externe https-Adresse eingestellt – Passkeys sind aus.");
   if (!e.warmwasser_typ_ok) warn.push(`„${e.warmwasser_entitaet}“ ist kein unterstützter Typ fürs Warmwasser (button, switch, script …).`);
+  if (!e.staubsauger_typ_ok) warn.push(`„${e.staubsauger_entitaet}“ ist kein Staubsauger (vacuum.…).`);
+  const familieAn = e.warmwasser_entitaet || e.staubsauger_entitaet;
+  if (familieAn && !d.benutzer.some((b) => b.familie)) {
+    warn.push("Noch niemand gehört zur Familie – Warmwasser und Staubsauger sieht in der App daher niemand. In der Spalte „Familie“ auf „Hinzufügen“ drücken.");
+  }
   if (!e.benachrichtigung) warn.push("Kein Benachrichtigungsdienst eingestellt – du erfährst nicht, wer öffnet.");
   $("#warnungen").replaceChildren(...warn.map((w) => el("p", w, "hinweis")));
 
@@ -88,8 +94,16 @@ async function laden() {
     const st = el("td");
     st.append(el("span", STATUS[b.status] || b.status, "status " + b.status));
     tr.append(st);
-    tr.append(el("td", b.fern ? "ja" : "nein"), el("td", b.warmwasser ? "ja" : "nein"),
-      el("td", b.zwei_faktor ? "an" : "aus"),
+    tr.append(el("td", b.fern ? "ja" : "nein"));
+    const fam = el("td");
+    if (familieAn && b.status !== "gesperrt") {
+      fam.append(b.familie
+        ? knopf("✓ Familie – entfernen", () => aktion(b, "familie_aus"), "an")
+        : knopf("Hinzufügen", () => aktion(b, "familie_an")));
+    } else {
+      fam.textContent = b.familie ? "ja" : "–";
+    }
+    tr.append(fam, el("td", b.zwei_faktor ? "an" : "aus"),
       el("td", String(b.passkeys)), el("td", zeit(b.zuletzt_geoeffnet)));
     const td = el("td");
     if (b.status === "wartet") td.append(knopf("Freigeben", () => aktion(b, "freigeben")));
@@ -97,10 +111,6 @@ async function laden() {
       td.append(knopf(b.fern ? "Fern-Recht entziehen" : "Fern-Recht geben",
         () => aktion(b, b.fern ? "fern_aus" : "fern_an",
           b.fern ? null : `${b.name} darf dann von überall öffnen. Sicher?`)));
-      if (e.warmwasser_entitaet) {
-        td.append(knopf(b.warmwasser ? "Warmwasser entziehen" : "Warmwasser erlauben",
-          () => aktion(b, b.warmwasser ? "warmwasser_aus" : "warmwasser_an")));
-      }
     }
     if (b.status === "gesperrt") td.append(knopf("Entsperren", () => aktion(b, "entsperren")));
     else td.append(knopf("Sperren", () => aktion(b, "sperren", `Zugang von ${b.name} sperren?`)));
@@ -139,6 +149,8 @@ async function laden() {
     zeilen.push(["Warmwasser-Temperatur", e.warmwasser_temperatur || "–"],
       ["Warmwasser lädt", e.warmwasser_laeuft || "–"]);
   }
+  zeilen.push(["Staubsauger", e.staubsauger_entitaet || "aus"]);
+  if (e.staubsauger_entitaet) zeilen.push(["Staubsauger-Akku", e.staubsauger_batterie || "–"]);
   $("#einstellungen").replaceChildren(...zeilen.flatMap(([k, v]) => [el("dt", k), el("dd", v)]));
 }
 

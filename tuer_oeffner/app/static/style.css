@@ -13,6 +13,7 @@
   --warn-grund: #fff4d6;
   --fern: #7a4fb0;
   --warm: #c2410c;
+  --saug: #0f766e;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -31,6 +32,7 @@
     --warn-grund: #3a3115;
     --fern: #c3a3ec;
     --warm: #fb923c;
+    --saug: #5eead4;
   }
 }
 
@@ -121,3 +123,13 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 .ww-status { margin: 4px 0 14px; min-height: 1.4em; }
 /* Gross genug fuer den Daumen, auch mit Handschuh */
 .knopf.haupt.warm { background: var(--warm); border-color: var(--warm); min-height: 56px; font-size: 1.05rem; touch-action: manipulation; }
+
+/* ---------- Staubsauger ---------- */
+
+.sg-batterie { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--leise); }
+.knopf-paar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.knopf-paar .knopf { min-height: 56px; font-size: 1.05rem; touch-action: manipulation; }
+.knopf.haupt.saug { background: var(--saug); border-color: var(--saug); }
+.knopf.haupt.saug-zurueck { background: var(--flaeche); border-color: var(--saug); color: var(--saug); }
+/* Auf sehr schmalen Handys untereinander, damit der Text nicht bricht */
+@media (max-width: 340px) { .knopf-paar { grid-template-columns: 1fr; } }

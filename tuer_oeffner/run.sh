@@ -12,6 +12,8 @@ export ZWEI_FAKTOR_PFLICHT="$(bashio::config 'zwei_faktor_pflicht')"
 export WARMWASSER_ENTITAET="$(bashio::config 'warmwasser_entitaet')"
 export WARMWASSER_TEMPERATUR="$(bashio::config 'warmwasser_temperatur')"
 export WARMWASSER_LAEUFT="$(bashio::config 'warmwasser_laeuft')"
+export STAUBSAUGER_ENTITAET="$(bashio::config 'staubsauger_entitaet')"
+export STAUBSAUGER_BATTERIE="$(bashio::config 'staubsauger_batterie')"
 export LOG_LEVEL="$(bashio::config 'log_level')"
 export DATA_DIR=/data
 

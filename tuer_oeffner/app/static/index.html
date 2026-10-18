@@ -112,6 +112,18 @@
         <button type="button" id="ww-aufheizen" class="knopf haupt warm">Wasser aufheizen</button>
       </section>
 
+      <section id="staubsauger" class="karte" aria-labelledby="sg-titel" hidden>
+        <div class="karte-kopf">
+          <h2 id="sg-titel">Staubsauger</h2>
+          <span id="sg-batterie" class="sg-batterie" aria-label="Akku">–</span>
+        </div>
+        <p id="sg-status" class="leise ww-status" aria-live="polite"></p>
+        <div class="knopf-paar">
+          <button type="button" class="knopf haupt saug" data-saug="start">Saugen starten</button>
+          <button type="button" class="knopf haupt saug-zurueck" data-saug="zur_station">Zur Station</button>
+        </div>
+      </section>
+
       <details class="einstellungen">
         <summary>Konto</summary>
         <div id="passkeys-bereich" hidden>

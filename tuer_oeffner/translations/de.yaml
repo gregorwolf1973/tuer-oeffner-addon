@@ -43,7 +43,8 @@ configuration:
     description: >-
       Was das Aufheizen startet, z. B. der ViCare-Knopf
       button.e3_vitocal_einmalige_aufladung_aktivieren. Leer = keine
-      Warmwasser-Funktion. Wer sie bekommt, legst du in der Verwaltung fest.
+      Warmwasser-Funktion. Wer sie bekommt, legst du in der Verwaltung fest
+      (Spalte „Familie“).
   warmwasser_temperatur:
     name: Warmwasser-Temperatur
     description: Sensor für die Anzeige in der App, z. B. sensor.e3_vitocal_ww_speichertemperatur. Leer = keine Anzeige.
@@ -52,6 +53,14 @@ configuration:
     description: >-
       binary_sensor, der an ist, solange aufgeheizt wird, z. B.
       binary_sensor.e3_vitocal_einmalige_ladung. Verhindert doppeltes Starten.
+  staubsauger_entitaet:
+    name: Staubsauger
+    description: >-
+      Der Saugroboter, z. B. vacuum.roborock_s7_maxv_2. Die Familie kann ihn
+      in der App starten und zur Station schicken. Leer = keine Anzeige.
+  staubsauger_batterie:
+    name: Staubsauger-Akku
+    description: Sensor für den Akkustand, z. B. sensor.roborock_s7_maxv_2_batterie. Leer = Akku aus dem Staubsauger selbst.
   log_level:
     name: Protokollstufe
 network:

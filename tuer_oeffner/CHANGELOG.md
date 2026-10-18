@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.4.0
+
+- Staubsauger für die Familie: Status und Akku in der App, dazu „Saugen
+  starten“ und „Zur Station“. Neue Optionen `staubsauger_entitaet` und
+  `staubsauger_batterie`, voreingestellt der Roborock S7 MaxV.
+- Aus dem Recht „Warmwasser“ wird **„Familie“**: es schaltet Warmwasser und
+  Staubsauger zusammen frei. Wer das Warmwasser-Recht hatte, gehört
+  automatisch zur Familie.
+- Verwaltung: eigene Spalte „Familie“ mit Knopf zum Hinzufügen und Entfernen,
+  dazu ein Hinweis, solange noch niemand zur Familie gehört.
+
 ## 0.3.0
 
 - Warmwasser für die Familie: Zugänge mit dem neuen Recht „Warmwasser“
