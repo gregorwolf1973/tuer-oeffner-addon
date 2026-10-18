@@ -26,6 +26,9 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
     eine Ladung, ist der Knopf gesperrt.
   - **Staubsauger:** Status und Akku, dazu „Saugen starten“ und „Zur
     Station“.
+  - **Kamera:** ein Livebild in der Haustür-Karte, etwa ein Bild pro
+    Sekunde. Abgefragt wird nur, solange die App im Vordergrund und das Bild
+    auf dem Bildschirm zu sehen ist.
 
   Beides geht von überall, ohne Standortprüfung.
 - **Benachrichtigung** an dich bei jedem Öffnen und jeder neuen
@@ -76,6 +79,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `warmwasser_laeuft` | binary_sensor, der an ist, solange aufgeheizt wird – verhindert doppeltes Starten |
 | `staubsauger_entitaet` | der Saugroboter (`vacuum.…`), leer = keine Staubsauger-Karte |
 | `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
+| `kamera_entitaet` | Kamera für das Livebild (nur Familie), leer = kein Livebild |
 
 ## Sicherheit
 

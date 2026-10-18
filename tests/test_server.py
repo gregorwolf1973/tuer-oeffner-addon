@@ -27,6 +27,7 @@ os.environ.update(
     WARMWASSER_LAEUFT="binary_sensor.ww_laedt",
     STAUBSAUGER_ENTITAET="vacuum.sauger",
     STAUBSAUGER_BATTERIE="sensor.sauger_akku",
+    KAMERA_ENTITAET="camera.haustuer",
 )
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tuer_oeffner", "app"))
 server = importlib.import_module("server")
@@ -69,6 +70,7 @@ def sauber():
         "sensor.sauger_akku": {"state": "87", "attributes": {}},
     })
     server._zuletzt_gesaugt["t"] = 0.0
+    server._kamera.update(t=0.0, bild=None)
     yield
 
 
@@ -635,6 +637,57 @@ def test_staubsauger_akku_aus_attribut_und_nicht_erreichbar(client, ha, monkeypa
     assert client.get("/api/staubsauger").json == {"zustand": "docked", "batterie": 50}
     ZUSTAENDE["vacuum.sauger"] = {"state": "unavailable", "attributes": {}}
     assert client.get("/api/staubsauger").json == {"zustand": None, "batterie": None}
+
+
+# ------------------------------------------------------------------
+# Kamera
+
+
+@pytest.fixture()
+def kamera(monkeypatch):
+    abrufe = []
+
+    def bild(entitaet):
+        abrufe.append(entitaet)
+        return b"\xff\xd8JPEG" + str(len(abrufe)).encode()
+
+    monkeypatch.setattr(server, "ha_bild", bild)
+    return abrufe
+
+
+def test_kamera_nur_familie(client, ha, kamera):
+    registrieren(client)
+    freigeben("anna@example.org")
+    assert client.get("/api/status").json["kamera"] is False
+    assert client.get("/api/kamera").status_code == 403
+    assert not kamera
+
+
+def test_kamera_bild_und_gemeinsamer_zwischenspeicher(client, ha, kamera):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    assert client.get("/api/status").json["kamera"] is True
+    r = client.get("/api/kamera")
+    assert r.status_code == 200 and r.mimetype == "image/jpeg" and r.data.startswith(b"\xff\xd8")
+    assert r.headers["Cache-Control"] == "no-store"
+    # Gleich danach: dasselbe Bild, die Kamera wird nicht noch einmal gefragt
+    assert client.get("/api/kamera").data == r.data
+    assert kamera == ["camera.haustuer"]
+    server._kamera["t"] = 0.0
+    assert client.get("/api/kamera").data != r.data
+    assert len(kamera) == 2
+
+
+def test_kamera_ohne_anmeldung_und_fehler(client, ha, monkeypatch):
+    assert client.get("/api/kamera").status_code == 401
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+
+    def kaputt(_e):
+        raise RuntimeError("Zeitueberschreitung")
+
+    monkeypatch.setattr(server, "ha_bild", kaputt)
+    assert client.get("/api/kamera").status_code == 502
 
 
 def test_sicherheitskoepfe(client, ha):

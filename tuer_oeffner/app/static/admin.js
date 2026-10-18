@@ -81,7 +81,7 @@ async function laden() {
   if (!e.externe_adresse.startsWith("https://")) warn.push("Keine externe https-Adresse eingestellt – Passkeys sind aus.");
   if (!e.warmwasser_typ_ok) warn.push(`„${e.warmwasser_entitaet}“ ist kein unterstützter Typ fürs Warmwasser (button, switch, script …).`);
   if (!e.staubsauger_typ_ok) warn.push(`„${e.staubsauger_entitaet}“ ist kein Staubsauger (vacuum.…).`);
-  const familieAn = e.warmwasser_entitaet || e.staubsauger_entitaet;
+  const familieAn = e.warmwasser_entitaet || e.staubsauger_entitaet || e.kamera_entitaet;
   if (familieAn && !d.benutzer.some((b) => b.familie)) {
     warn.push("Noch niemand gehört zur Familie – Warmwasser und Staubsauger sieht in der App daher niemand. In der Spalte „Familie“ auf „Hinzufügen“ drücken.");
   }
@@ -151,6 +151,7 @@ async function laden() {
   }
   zeilen.push(["Staubsauger", e.staubsauger_entitaet || "aus"]);
   if (e.staubsauger_entitaet) zeilen.push(["Staubsauger-Akku", e.staubsauger_batterie || "–"]);
+  zeilen.push(["Kamera (Familie)", e.kamera_entitaet || "aus"]);
   $("#einstellungen").replaceChildren(...zeilen.flatMap(([k, v]) => [el("dt", k), el("dd", v)]));
 }
 

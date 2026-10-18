@@ -20,7 +20,8 @@ Supervisor-API einen Dienst fuer die eingestellte Entitaet auf.
 
 Dazu, fuer die Familie: Wer vom Admin das Recht "Familie" bekommt, sieht
 in der App die Speichertemperatur mit einem Knopf, der z. B. die einmalige
-Ladung der Waermepumpe ausloest, und den Staubsauger (starten, zur Station).
+Ladung der Waermepumpe ausloest, den Staubsauger (starten, zur Station) und
+ein Livebild der Kamera an der Haustuer.
 """
 
 import json
@@ -71,6 +72,7 @@ WARMWASSER_TEMPERATUR = os.environ.get("WARMWASSER_TEMPERATUR", "").strip()
 WARMWASSER_LAEUFT = os.environ.get("WARMWASSER_LAEUFT", "").strip()
 STAUBSAUGER_ENTITAET = os.environ.get("STAUBSAUGER_ENTITAET", "").strip()
 STAUBSAUGER_BATTERIE = os.environ.get("STAUBSAUGER_BATTERIE", "").strip()
+KAMERA_ENTITAET = os.environ.get("KAMERA_ENTITAET", "").strip()
 INGRESS_ADRESSEN = {a.strip() for a in os.environ.get("INGRESS_ADRESSEN", "172.30.32.2").split(",") if a.strip()}
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 HA_API = os.environ.get("HA_API", "http://supervisor/core/api")
@@ -89,6 +91,9 @@ ABKLINGZEIT_S = 8
 # ist - so loest ein ungeduldiges Doppeltippen nicht zweimal aus
 WARMWASSER_ABKLINGZEIT_S = 60
 STAUBSAUGER_ABKLINGZEIT_S = 5
+# So lange gilt ein Kamerabild fuer alle - mehrere offene Apps fragen die
+# Kamera damit trotzdem nur etwa einmal pro Sekunde
+KAMERA_BILD_S = 0.8
 # Die Ungenauigkeit des Standorts zaehlt hoechstens bis hierhin zugunsten
 # des Benutzers. Sonst "oeffnete" ein Handy mit 5 km Ungenauigkeit ueberall.
 GENAUIGKEIT_MAX_M = 100
@@ -277,6 +282,16 @@ def ausloesen(entitaet):
     if not dienst:
         raise RuntimeError(f"Entitaet {entitaet!r} ist nicht eingestellt oder kein bekannter Typ")
     ha_aufruf("POST", f"/services/{domain}/{dienst}", {"entity_id": entitaet})
+
+
+def ha_bild(entitaet):
+    """Ein aktuelles JPEG der Kamera ueber Home Assistant. In den Tests ersetzt."""
+    antwort = requests.get(
+        f"{HA_API}/camera_proxy/{entitaet}", timeout=10,
+        headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
+    )
+    antwort.raise_for_status()
+    return antwort.content
 
 
 def tuer_schalten():
@@ -521,6 +536,7 @@ def api_status():
             familie=ist_familie(b),
             warmwasser=ist_familie(b) and bool(WARMWASSER_ENTITAET),
             staubsauger=ist_familie(b) and bool(STAUBSAUGER_ENTITAET),
+            kamera=ist_familie(b) and bool(KAMERA_ENTITAET),
             radius=RADIUS_METER,
         )
         if session.get("stufe") == "voll":
@@ -1110,6 +1126,28 @@ def api_staubsauger_befehl(b, befehl):
     return jsonify({"ok": True})
 
 
+_kamera_sperre = threading.Lock()
+_kamera = {"t": 0.0, "bild": None}
+
+
+@app.get("/api/kamera")
+@braucht("voll")
+def api_kamera(b):
+    """Das aktuelle Bild der Kamera an der Haustuer. Die App fragt es nur
+    ab, solange sie offen und das Bild zu sehen ist."""
+    if (f := familie_fehler(b, KAMERA_ENTITAET)):
+        return f
+    with _kamera_sperre:
+        if time.time() - _kamera["t"] >= KAMERA_BILD_S:
+            try:
+                _kamera.update(bild=ha_bild(KAMERA_ENTITAET), t=time.time())
+            except Exception as fehl:  # noqa: BLE001
+                log.warning("Kamerabild nicht lesbar: %s", fehl)
+                return fehler("Die Kamera liefert gerade kein Bild.", 502)
+        bild = _kamera["bild"]
+    return app.response_class(bild, mimetype="image/jpeg")
+
+
 # ------------------------------------------------------------------
 # Verwaltung (nur Ingress)
 # ------------------------------------------------------------------
@@ -1149,6 +1187,7 @@ def api_admin_uebersicht():
             "staubsauger_entitaet": STAUBSAUGER_ENTITAET,
             "staubsauger_typ_ok": not STAUBSAUGER_ENTITAET or STAUBSAUGER_ENTITAET.startswith("vacuum."),
             "staubsauger_batterie": STAUBSAUGER_BATTERIE,
+            "kamera_entitaet": KAMERA_ENTITAET,
         },
     })
 
@@ -1224,6 +1263,8 @@ if __name__ == "__main__":
         log.info("Warmwasser: %s", WARMWASSER_ENTITAET)
     if STAUBSAUGER_ENTITAET:
         log.info("Staubsauger: %s", STAUBSAUGER_ENTITAET)
+    if KAMERA_ENTITAET:
+        log.info("Kamera: %s", KAMERA_ENTITAET)
     if not passkey_moeglich():
         log.warning("Keine externe https-Adresse eingestellt - Passkeys sind aus")
     serve(app, host="0.0.0.0", port=PORT, threads=8, ident=None)

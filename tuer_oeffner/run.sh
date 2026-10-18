@@ -14,6 +14,7 @@ export WARMWASSER_TEMPERATUR="$(bashio::config 'warmwasser_temperatur')"
 export WARMWASSER_LAEUFT="$(bashio::config 'warmwasser_laeuft')"
 export STAUBSAUGER_ENTITAET="$(bashio::config 'staubsauger_entitaet')"
 export STAUBSAUGER_BATTERIE="$(bashio::config 'staubsauger_batterie')"
+export KAMERA_ENTITAET="$(bashio::config 'kamera_entitaet')"
 export LOG_LEVEL="$(bashio::config 'log_level')"
 export DATA_DIR=/data
 

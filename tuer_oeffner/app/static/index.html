@@ -91,7 +91,15 @@
         <button type="button" class="knopf klein" data-aktion="neu-laden">Nachsehen</button>
       </div>
 
-      <div id="oeffnen" hidden>
+      <section id="oeffnen" class="karte" aria-labelledby="tuer-titel" hidden>
+        <div class="karte-kopf">
+          <h2 id="tuer-titel">Haustür</h2>
+          <span id="kamera-live" class="kamera-live" hidden>● Live</span>
+        </div>
+        <div id="kamera" class="kamera" hidden>
+          <img id="kamera-bild" alt="Livebild der Kamera an der Haustür">
+          <p id="kamera-text" class="kamera-text">Bild wird geladen …</p>
+        </div>
         <div class="schieber" data-modus="nah">
           <div class="spur"><span class="spur-text">Zum Öffnen schieben</span>
             <button type="button" class="griff" aria-label="Haustür öffnen (Standort wird geprüft)">🔑</button></div>
@@ -102,7 +110,7 @@
           <div class="spur"><span class="spur-text">Aus der Ferne öffnen</span>
             <button type="button" class="griff" aria-label="Haustür aus der Ferne öffnen">📡</button></div>
         </div>
-      </div>
+      </section>
 
       <section id="warmwasser" class="karte" aria-labelledby="ww-titel" hidden>
         <div class="karte-kopf">

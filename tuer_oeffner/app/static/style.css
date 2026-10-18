@@ -157,6 +157,24 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 /* Auf sehr schmalen Handys untereinander, damit der Text nicht bricht */
 @media (max-width: 340px) { .knopf-paar { grid-template-columns: 1fr; } }
 
+/* ---------- Haustuer-Karte mit Kamera ---------- */
+
+.karte:first-of-type { margin-top: 16px; }
+.karte .schieber { margin: 14px 0 6px; }
+.karte .schieber.fern { margin-top: 10px; }
+.karte #radius-hinweis { margin: 6px 0 0; }
+.kamera {
+  position: relative; margin-top: 12px; border-radius: 12px; overflow: hidden;
+  background: var(--grund); aspect-ratio: 16 / 9;
+}
+.kamera img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.kamera img:not([src]) { visibility: hidden; }
+.kamera-text {
+  position: absolute; inset: 0; margin: 0; display: grid; place-items: center;
+  color: var(--leise); font-size: .9rem; pointer-events: none;
+}
+.kamera-live { font-size: .8rem; font-weight: 600; color: var(--schlecht); letter-spacing: .03em; }
+
 /* ---------- Darstellung (unter "Konto") ---------- */
 
 .darstellung { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }

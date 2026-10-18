@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.5.0
+
+- Die Haustür hat jetzt eine eigene Karte wie Warmwasser und Staubsauger.
+- Livebild der Kamera in der Haustür-Karte, nur für Zugänge der Familie.
+  Etwa ein Bild pro Sekunde – und nur, solange die App im Vordergrund und
+  das Bild zu sehen ist. Neue Option `kamera_entitaet`, voreingestellt die
+  T62. Mehrere offene Apps teilen sich ein Bild, die Kamera wird höchstens
+  gut einmal pro Sekunde gefragt.
+
 ## 0.4.1
 
 - Die App ist jetzt dunkel. Unter „Konto“ → „Darstellung“ lässt sich auf

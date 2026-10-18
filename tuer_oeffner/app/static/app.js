@@ -98,6 +98,7 @@ async function laden() {
   $("#fern").hidden = !zustand.fern;
   $("#warmwasser").hidden = !zustand.warmwasser;
   $("#staubsauger").hidden = !zustand.staubsauger;
+  $("#kamera").hidden = !zustand.kamera;
   familieLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
@@ -118,6 +119,7 @@ async function laden() {
     return li;
   }));
   zeige("haupt");
+  kameraPruefen();
 }
 
 /* konto: aus "Konto" heraus eingeschaltet (sonst Pflicht nach der Anmeldung) */
@@ -455,6 +457,57 @@ $$("[data-saug]").forEach((knopf) => knopf.addEventListener("click", async () =>
   // Der Sauger meldet den neuen Zustand mit etwas Verzoegerung
   setTimeout(staubsaugerLaden, 6000);
 }));
+
+/* ---------- Kamera ----------
+   Ein Bild nach dem anderen, etwa jede Sekunde - aber nur, solange die App
+   im Vordergrund ist UND das Bild auf dem Bildschirm zu sehen ist. Sonst
+   geht keine einzige Anfrage raus. */
+
+const kamera = { laeuft: false, imBild: false, uhr: null };
+const kameraBild = $("#kamera-bild");
+
+function kameraSoll() {
+  return zustand.kamera && !document.hidden && kamera.imBild
+    && !$("#kamera").hidden && !$("#oeffnen").hidden && !$('[data-ansicht="haupt"]').hidden;
+}
+
+function kameraNaechstes() {
+  clearTimeout(kamera.uhr);
+  if (!kameraSoll()) {
+    kamera.laeuft = false;
+    $("#kamera-live").hidden = true;
+    return;
+  }
+  kamera.laeuft = true;
+  kameraBild.src = "api/kamera?t=" + Date.now();
+}
+
+function kameraPruefen() {
+  if (kameraSoll() && !kamera.laeuft) kameraNaechstes();
+}
+
+kameraBild.addEventListener("load", () => {
+  $("#kamera-text").textContent = "";
+  $("#kamera-live").hidden = false;
+  kamera.uhr = setTimeout(kameraNaechstes, 1000);
+});
+kameraBild.addEventListener("error", () => {
+  if (!kameraBild.getAttribute("src")) return;
+  $("#kamera-text").textContent = "Die Kamera liefert gerade kein Bild.";
+  $("#kamera-live").hidden = true;
+  // Seltener nachfragen, solange die Kamera nicht antwortet
+  kamera.uhr = setTimeout(kameraNaechstes, 5000);
+});
+
+if ("IntersectionObserver" in window) {
+  new IntersectionObserver(([eintrag]) => {
+    kamera.imBild = eintrag.isIntersecting;
+    kameraPruefen();
+  }).observe($("#kamera"));
+} else {
+  kamera.imBild = true;
+}
+document.addEventListener("visibilitychange", kameraPruefen);
 
 /* ---------- Familie: Anzeigen aktuell halten ---------- */
 

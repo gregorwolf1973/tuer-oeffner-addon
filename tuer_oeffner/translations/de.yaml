@@ -61,6 +61,12 @@ configuration:
   staubsauger_batterie:
     name: Staubsauger-Akku
     description: Sensor für den Akkustand, z. B. sensor.roborock_s7_maxv_2_batterie. Leer = Akku aus dem Staubsauger selbst.
+  kamera_entitaet:
+    name: Kamera an der Haustür
+    description: >-
+      Livebild in der Haustür-Karte, nur für Zugänge der Familie, z. B.
+      camera.t62_mainstream. Abgefragt wird nur, solange die App offen und das
+      Bild zu sehen ist. Leer = kein Livebild.
   log_level:
     name: Protokollstufe
 network:
