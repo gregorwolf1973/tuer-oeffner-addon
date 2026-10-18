@@ -47,6 +47,7 @@ const AKTION_TEXT = {
   admin_2fa_zuruecksetzen: "2FA zurückgesetzt", admin_loeschen: "gelöscht",
   admin_warmwasser_ziel: "Warmwasser-Ziel geändert",
   standort_an: "Standort-Freigabe an", standort_aus: "Standort-Freigabe aus",
+  owntracks_eingerichtet: "OwnTracks eingerichtet", owntracks_getrennt: "OwnTracks getrennt",
 };
 
 function knopf(text, fn, klasse = "") {

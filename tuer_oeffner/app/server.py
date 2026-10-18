@@ -24,6 +24,8 @@ Ladung der Waermepumpe ausloest, den Staubsauger (starten, zur Station) und
 ein Livebild der Kamera an der Haustuer und den Pollenflug.
 """
 
+import base64
+import hashlib
 import json
 import logging
 import math
@@ -169,6 +171,9 @@ CREATE TABLE IF NOT EXISTS benutzer (
     familie INTEGER NOT NULL DEFAULT 0,
     -- 1 = zeigt der Familie den eigenen Standort (selbst eingeschaltet)
     standort_teilen INTEGER NOT NULL DEFAULT 0,
+    -- OwnTracks (Standort im Hintergrund): Pruefsumme des Passworts, letzte Meldung
+    owntracks_hash TEXT,
+    owntracks_zuletzt INTEGER,
     -- 1 = bei der Anmeldung wird nach dem Passwort ein Code verlangt
     zwei_faktor INTEGER NOT NULL DEFAULT 0,
     totp_geheimnis TEXT,
@@ -207,7 +212,9 @@ CREATE TABLE IF NOT EXISTS standorte (
     lat REAL NOT NULL,
     lon REAL NOT NULL,
     genauigkeit REAL,
-    zeit INTEGER NOT NULL
+    zeit INTEGER NOT NULL,
+    -- app (Browser, solange offen) | owntracks (im Hintergrund)
+    quelle TEXT NOT NULL DEFAULT 'app'
 );
 """
 
@@ -252,6 +259,11 @@ def db_einrichten():
             conn.execute("UPDATE benutzer SET familie = warmwasser")
     if "standort_teilen" not in spalten:
         conn.execute("ALTER TABLE benutzer ADD COLUMN standort_teilen INTEGER NOT NULL DEFAULT 0")
+    if "owntracks_hash" not in spalten:
+        conn.execute("ALTER TABLE benutzer ADD COLUMN owntracks_hash TEXT")
+        conn.execute("ALTER TABLE benutzer ADD COLUMN owntracks_zuletzt INTEGER")
+    if "quelle" not in {r[1] for r in conn.execute("PRAGMA table_info(standorte)")}:
+        conn.execute("ALTER TABLE standorte ADD COLUMN quelle TEXT NOT NULL DEFAULT 'app'")
     conn.execute("DELETE FROM standorte WHERE zeit < ?", (int(time.time()) - STANDORT_TAGE * 86400,))
     conn.execute("DELETE FROM protokoll WHERE zeit < ?", (int(time.time()) - PROTOKOLL_TAGE * 86400,))
     conn.commit()
@@ -563,6 +575,9 @@ def api_status():
             pollen=ist_familie(b) and bool(POLLEN_PRAEFIX),
             standorte=ist_familie(b),
             standort_teilen=ist_familie(b) and bool(b["standort_teilen"]),
+            owntracks=ist_familie(b) and bool(b["owntracks_hash"]),
+            owntracks_zuletzt=b["owntracks_zuletzt"] if ist_familie(b) else None,
+            owntracks_moeglich=EXTERNE_ADRESSE.startswith("https://"),
             wlan=b["status"] == "aktiv" and bool(WLAN_NAME),
             radius=RADIUS_METER,
         )
@@ -1294,13 +1309,112 @@ def api_standort(b):
         return fehler("Ungültiger Standort.")
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return fehler("Ungültiger Standort.")
-    db().execute(
-        "INSERT INTO standorte (benutzer_id, lat, lon, genauigkeit, zeit) VALUES (?,?,?,?,?)"
-        " ON CONFLICT(benutzer_id) DO UPDATE SET lat = excluded.lat, lon = excluded.lon,"
-        " genauigkeit = excluded.genauigkeit, zeit = excluded.zeit",
-        (b["id"], lat, lon, genauigkeit, int(time.time())))
-    db().commit()
+    standort_speichern(b["id"], lat, lon, genauigkeit, int(time.time()), "app")
     return jsonify({"ok": True})
+
+
+def standort_speichern(bid, lat, lon, genauigkeit, zeit, quelle):
+    """Merkt sich den Ort - nur wenn er neuer ist als der bisherige. So
+    ueberschreibt eine nachgereichte alte OwnTracks-Meldung nichts."""
+    db().execute(
+        "INSERT INTO standorte (benutzer_id, lat, lon, genauigkeit, zeit, quelle) VALUES (?,?,?,?,?,?)"
+        " ON CONFLICT(benutzer_id) DO UPDATE SET lat = excluded.lat, lon = excluded.lon,"
+        " genauigkeit = excluded.genauigkeit, zeit = excluded.zeit, quelle = excluded.quelle"
+        " WHERE excluded.zeit >= standorte.zeit",
+        (bid, lat, lon, genauigkeit, zeit, quelle))
+    db().commit()
+
+
+# ------------------------------------------------------------------
+# OwnTracks: kleine App, die den Standort auch im Hintergrund schickt.
+# Sie meldet sich per HTTP Basic an (Benutzer "tuer-<id>", eigenes
+# Passwort je Zugang) - nicht mit dem Passwort des Tueroeffners.
+# ------------------------------------------------------------------
+
+
+def owntracks_pruefsumme(passwort):
+    return hashlib.sha256(passwort.encode()).hexdigest()
+
+
+def owntracks_kuerzel(name):
+    teile = [t for t in re.split(r"\s+", name.strip()) if t]
+    kurz = "".join(t[0] for t in teile[:2]) if len(teile) > 1 else name.strip()[:2]
+    return (kurz or "??").upper()
+
+
+@app.post("/api/owntracks/einrichten")
+@braucht("voll")
+def api_owntracks_einrichten(b):
+    if not ist_familie(b):
+        return fehler("Das dürfen nur Zugänge der Familie.", 403)
+    if not EXTERNE_ADRESSE.startswith("https://"):
+        return fehler("Dafür braucht es die externe https-Adresse in den Add-on-Optionen.", 503)
+    # Jedes Einrichten macht ein neues Passwort - ein altes Handy faellt damit raus
+    passwort = secrets.token_urlsafe(24)
+    db().execute("UPDATE benutzer SET owntracks_hash = ?, owntracks_zuletzt = NULL, standort_teilen = 1"
+                 " WHERE id = ?", (owntracks_pruefsumme(passwort), b["id"]))
+    db().commit()
+    protokollieren("owntracks_eingerichtet", b)
+    konfig = {
+        "_type": "configuration",
+        "mode": 3,  # HTTP
+        "url": f"{EXTERNE_ADRESSE}/owntracks",
+        "auth": True,
+        "username": f"tuer-{b['id']}",
+        "password": passwort,
+        "deviceId": "handy",
+        "tid": owntracks_kuerzel(b["name"]),
+        "monitoring": 1,  # "signifikant": spart Akku, meldet bei Ortswechsel
+    }
+    inline = base64.urlsafe_b64encode(json.dumps(konfig).encode()).decode()
+    return jsonify({
+        "link": f"owntracks:///config?inline={inline}",
+        "url": konfig["url"], "benutzer": konfig["username"], "passwort": passwort,
+    })
+
+
+@app.post("/api/owntracks/trennen")
+@braucht("voll")
+def api_owntracks_trennen(b):
+    db().execute("UPDATE benutzer SET owntracks_hash = NULL, owntracks_zuletzt = NULL WHERE id = ?", (b["id"],))
+    db().commit()
+    protokollieren("owntracks_getrennt", b)
+    return jsonify({"ok": True})
+
+
+@app.post("/owntracks")
+def owntracks_empfang():
+    """Hierhin schickt OwnTracks jeden neuen Ort. Antwort ist immer eine
+    (leere) JSON-Liste - das erwartet die App."""
+    if ip_gebremst():
+        return jsonify([]), 429
+    auth = request.authorization
+    b = None
+    if auth and auth.username and auth.username.startswith("tuer-") and auth.username[5:].isdigit():
+        b = benutzer_laden(int(auth.username[5:]))
+    if not b or not b["owntracks_hash"] or not secrets.compare_digest(
+            b["owntracks_hash"], owntracks_pruefsumme(auth.password or "")):
+        ip_fehler()
+        return jsonify([]), 401
+    e = json_eingabe()
+    if e.get("_type") != "location":
+        return jsonify([])  # Wegpunkte, Status usw. brauchen wir nicht
+    db().execute("UPDATE benutzer SET owntracks_zuletzt = ? WHERE id = ?", (int(time.time()), b["id"]))
+    db().commit()
+    # Freigabe aus, gesperrt oder nicht mehr Familie: Ort wird verworfen
+    if not ist_familie(b) or not b["standort_teilen"]:
+        return jsonify([])
+    try:
+        lat, lon = float(e["lat"]), float(e["lon"])
+        genauigkeit = max(0.0, float(e.get("acc") or 0))
+        zeit = int(e.get("tst") or time.time())
+    except (KeyError, TypeError, ValueError):
+        return jsonify([])
+    jetzt = int(time.time())
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or zeit < jetzt - STANDORT_TAGE * 86400:
+        return jsonify([])
+    standort_speichern(b["id"], lat, lon, genauigkeit, min(zeit, jetzt), "owntracks")
+    return jsonify([])
 
 
 @app.get("/api/standorte")
@@ -1312,10 +1426,10 @@ def api_standorte(b):
     leute = []
     # Nur wer noch zur Familie gehoert, freigegeben ist und teilt
     for r in db().execute(
-            "SELECT b.id, b.name, s.lat, s.lon, s.genauigkeit, s.zeit FROM standorte s"
+            "SELECT b.id, b.name, s.lat, s.lon, s.genauigkeit, s.zeit, s.quelle FROM standorte s"
             " JOIN benutzer b ON b.id = s.benutzer_id"
             " WHERE b.familie = 1 AND b.status = 'aktiv' AND b.standort_teilen = 1 ORDER BY b.name"):
-        eintrag = {k: r[k] for k in ("name", "lat", "lon", "genauigkeit", "zeit")} | {"ich": r["id"] == b["id"]}
+        eintrag = {k: r[k] for k in ("name", "lat", "lon", "genauigkeit", "zeit", "quelle")} | {"ich": r["id"] == b["id"]}
         if heim:
             eintrag["von_zuhause_m"] = round(entfernung_m(r["lat"], r["lon"], *heim))
         leute.append(eintrag)

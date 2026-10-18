@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.10.0
+
+- Standort im Hintergrund mit **OwnTracks**: „OwnTracks einrichten“ erzeugt
+  eigene Zugangsdaten und einen Link, der OwnTracks fertig einrichtet.
+  OwnTracks schickt den Ort dann auch bei geschlossener App an
+  `/owntracks`; er erscheint in „Wo ist die Familie?“. Die Freigabe in der
+  App bleibt der Hauptschalter.
+
 ## 0.9.0
 
 - „Wo ist die Familie?“: Jeder Familien-Zugang kann seinen Standort selbst

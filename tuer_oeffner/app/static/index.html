@@ -148,6 +148,34 @@
         <p id="standort-leer" class="leise" hidden>Gerade teilt niemand seinen Standort.</p>
         <button type="button" id="standort-knopf" class="knopf haupt standort-knopf">Meinen Standort freigeben</button>
         <p class="leise standort-hinweis" id="standort-hinweis">Die Familie sieht dann, wo du bist. Gesendet wird nur, solange diese App offen ist.</p>
+
+        <div id="ot" class="ot" hidden>
+          <h3>Immer sichtbar – auch wenn diese App zu ist</h3>
+          <p id="ot-status" class="leise"></p>
+          <button type="button" id="ot-einrichten" class="knopf ot-knopf">OwnTracks einrichten</button>
+          <div id="ot-anleitung" class="ot-anleitung" hidden>
+            <ol class="schritte">
+              <li>OwnTracks installieren (kostenlos):
+                <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" rel="noopener">Android</a> ·
+                <a href="https://apps.apple.com/app/owntracks/id692424691" target="_blank" rel="noopener">iPhone</a></li>
+              <li>Hier tippen – OwnTracks öffnet sich und übernimmt alle Einstellungen:
+                <a id="ot-link" class="knopf haupt ot-link" href="#">In OwnTracks übernehmen</a></li>
+              <li>In OwnTracks den Standort auf <b>„Immer erlauben“</b> stellen. Auf Android zusätzlich in den
+                Handy-Einstellungen bei OwnTracks die <b>Akku-Optimierung</b> ausschalten.</li>
+            </ol>
+            <details class="leise">
+              <summary>Link geht nicht? Von Hand eintragen</summary>
+              <dl class="wlan-liste">
+                <dt>Modus</dt><dd>HTTP</dd>
+                <dt>URL</dt><dd><code id="ot-url"></code></dd>
+                <dt>Benutzer</dt><dd><code id="ot-benutzer"></code></dd>
+                <dt>Passwort</dt><dd><code id="ot-passwort"></code></dd>
+                <dt>Geräte-ID</dt><dd><code>handy</code></dd>
+              </dl>
+            </details>
+          </div>
+          <button type="button" id="ot-trennen" class="knopf klein" hidden>OwnTracks trennen</button>
+        </div>
       </section>
 
       <section id="pollen" class="karte" aria-labelledby="pollen-titel" hidden>

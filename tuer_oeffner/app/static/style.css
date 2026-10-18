@@ -210,6 +210,14 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 .knopf.haupt.standort-knopf.aus { background: var(--flaeche); color: var(--text); border-color: var(--rand); }
 .standort-hinweis { margin: 6px 0 0; font-size: .82rem; }
 
+.ot { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--rand); }
+.ot h3 { margin-top: 0; }
+.ot-knopf { width: 100%; min-height: 48px; }
+.ot-anleitung { margin-top: 10px; font-size: .92rem; }
+.ot-anleitung li { margin-bottom: 10px; }
+.knopf.haupt.ot-link { display: block; text-align: center; text-decoration: none; margin-top: 6px; }
+#ot-trennen { margin-top: 8px; }
+
 /* ---------- Pollenflug ---------- */
 
 .pollen-stand { font-size: .8rem; }

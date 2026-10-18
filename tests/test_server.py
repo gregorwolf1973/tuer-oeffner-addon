@@ -878,6 +878,90 @@ def test_standort_ungueltig(client, ha):
     assert post(client, "/api/standort", {"lat": "hier"}).status_code == 400
 
 
+# ------------------------------------------------------------------
+# OwnTracks
+
+
+def owntracks_daten(client):
+    r = post(client, "/api/owntracks/einrichten")
+    assert r.status_code == 200, r.json
+    return r.json
+
+
+def ot_post(daten, benutzer, passwort):
+    import base64 as b64
+    c = server.app.test_client()
+    kopf = {"Authorization": "Basic " + b64.b64encode(f"{benutzer}:{passwort}".encode()).decode()}
+    return c.post("/owntracks", json=daten, headers=kopf)
+
+
+def ort(lat=48.2, lon=11.6, tst=None):
+    return {"_type": "location", "lat": lat, "lon": lon, "acc": 25, "tst": tst or int(time.time())}
+
+
+def test_owntracks_einrichten_und_melden(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    d = owntracks_daten(client)
+    assert d["url"] == "https://tuer.example.org/owntracks" and d["link"].startswith("owntracks:///config?inline=")
+    import base64 as b64
+    import json as js
+    konfig = js.loads(b64.urlsafe_b64decode(d["link"].split("inline=")[1]))
+    assert konfig["mode"] == 3 and konfig["username"] == d["benutzer"] and konfig["password"] == d["passwort"]
+    # Einrichten schaltet die Freigabe ein
+    s = client.get("/api/status").json
+    assert s["owntracks"] is True and s["standort_teilen"] is True and s["owntracks_zuletzt"] is None
+    r = ot_post(ort(), d["benutzer"], d["passwort"])
+    assert r.status_code == 200 and r.json == []
+    p = client.get("/api/standorte").json["leute"][0]
+    assert p["quelle"] == "owntracks" and p["lat"] == 48.2
+    assert client.get("/api/status").json["owntracks_zuletzt"]
+
+
+def test_owntracks_falsches_passwort_und_neu_einrichten(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    alt = owntracks_daten(client)
+    assert ot_post(ort(), alt["benutzer"], "falsch").status_code == 401
+    assert ot_post(ort(), "tuer-999", alt["passwort"]).status_code == 401
+    neu = owntracks_daten(client)
+    assert ot_post(ort(), alt["benutzer"], alt["passwort"]).status_code == 401
+    assert ot_post(ort(), neu["benutzer"], neu["passwort"]).status_code == 200
+
+
+def test_owntracks_freigabe_aus_verwirft(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    d = owntracks_daten(client)
+    post(client, "/api/standort/teilen", {"an": False})
+    assert ot_post(ort(), d["benutzer"], d["passwort"]).status_code == 200
+    conn = server.verbinden()
+    assert conn.execute("SELECT COUNT(*) FROM standorte").fetchone()[0] == 0
+    conn.close()
+
+
+def test_owntracks_alte_meldung_ueberschreibt_nichts(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    d = owntracks_daten(client)
+    jetzt = int(time.time())
+    ot_post(ort(48.3, 11.7, jetzt), d["benutzer"], d["passwort"])
+    ot_post(ort(48.0, 11.0, jetzt - 3600), d["benutzer"], d["passwort"])
+    assert client.get("/api/standorte").json["leute"][0]["lat"] == 48.3
+
+
+def test_owntracks_trennen_und_nur_familie(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org")
+    assert post(client, "/api/owntracks/einrichten").status_code == 403
+    admin = server.app.test_client()
+    post(admin, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/familie_an", environ_base=INGRESS)
+    d = owntracks_daten(client)
+    assert post(client, "/api/owntracks/trennen").status_code == 200
+    assert ot_post(ort(), d["benutzer"], d["passwort"]).status_code == 401
+    assert client.get("/api/status").json["owntracks"] is False
+
+
 def test_sicherheitskoepfe(client, ha):
     r = client.get("/")
     assert "default-src 'self'" in r.headers["Content-Security-Policy"]

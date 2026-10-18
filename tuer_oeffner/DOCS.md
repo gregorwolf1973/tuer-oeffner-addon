@@ -38,6 +38,13 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
     solange die App offen ist: Eine Web-App kann im Hintergrund keinen
     Standort liefern. „Freigabe beenden“ löscht den letzten Ort sofort;
     Orte, die älter als 7 Tage sind, werden ohnehin gelöscht.
+  - **Immer sichtbar mit OwnTracks:** Wer seinen Ort auch bei geschlossener
+    App zeigen will, installiert die kostenlose App OwnTracks und tippt
+    „OwnTracks einrichten“ → „In OwnTracks übernehmen“. OwnTracks schickt den
+    Ort dann im Hintergrund an `<externe Adresse>/owntracks` – direkt nach
+    Hause, nicht an einen fremden Dienst. Jeder Zugang hat dafür ein eigenes,
+    zufälliges Passwort; „Neu einrichten“ macht das alte ungültig. Ist die
+    Freigabe aus, verwirft das Add-on alles, was OwnTracks schickt.
   - **Pollenflug** vom DWD für heute, morgen und übermorgen: belastete
     Arten mit Farbstufe (gering – mittel – hoch), der Rest eingeklappt.
 

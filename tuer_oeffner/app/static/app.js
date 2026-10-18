@@ -104,6 +104,7 @@ async function laden() {
   $("#standorte").hidden = !zustand.standorte;
   ort.teilen = Boolean(zustand.standort_teilen);
   ortKnopfZeigen();
+  owntracksZeigen();
   familieLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
@@ -224,6 +225,10 @@ document.addEventListener("click", async (ev) => {
     $("#wlan-qr").replaceChildren();
     $("#wlan-schluessel").textContent = "";
     $("#wlan-zeigen").textContent = "WLAN-QR-Code zeigen";
+    // Auch die OwnTracks-Zugangsdaten
+    $("#ot-anleitung").hidden = true;
+    $("#ot-link").href = "#";
+    $("#ot-passwort").textContent = "";
     await api("abmelden", {}).catch(() => {});
     melde("");
     laden();
@@ -790,6 +795,44 @@ $("#standort-knopf").addEventListener("click", () => ausfuehren(async () => {
   } finally {
     knopf.disabled = false;
   }
+}).catch(() => {}));
+
+/* ---------- OwnTracks: Standort auch im Hintergrund ---------- */
+
+function owntracksZeigen() {
+  $("#ot").hidden = !zustand.standorte || !zustand.owntracks_moeglich;
+  let text;
+  if (!zustand.owntracks) {
+    text = "Mit der kostenlosen App OwnTracks wird dein Standort auch im Hintergrund geschickt – direkt zu uns nach Hause, nicht an Google.";
+  } else if (zustand.owntracks_zuletzt) {
+    text = `✓ OwnTracks ist verbunden – letzte Meldung ${alterText(Date.now() / 1000 - zustand.owntracks_zuletzt)}.`;
+  } else {
+    text = "Eingerichtet – wartet auf die erste Meldung von OwnTracks.";
+  }
+  if (zustand.owntracks && !zustand.standort_teilen) text += " Die Freigabe ist aus, deshalb sieht gerade niemand deinen Standort.";
+  $("#ot-status").textContent = text;
+  $("#ot-einrichten").textContent = zustand.owntracks ? "Neu einrichten (z. B. neues Handy)" : "OwnTracks einrichten";
+  $("#ot-trennen").hidden = !zustand.owntracks;
+}
+
+$("#ot-einrichten").addEventListener("click", () => ausfuehren(async () => {
+  if (zustand.owntracks && !confirm("Neu einrichten? Das bisher eingerichtete Handy meldet sich danach nicht mehr.")) return;
+  const d = await api("owntracks/einrichten", {});
+  $("#ot-link").href = d.link;
+  $("#ot-url").textContent = d.url;
+  $("#ot-benutzer").textContent = d.benutzer;
+  $("#ot-passwort").textContent = d.passwort;
+  $("#ot-anleitung").hidden = false;
+  await laden();
+  $("#ot-anleitung").scrollIntoView({ block: "nearest" });
+}).catch(() => {}));
+
+$("#ot-trennen").addEventListener("click", () => ausfuehren(async () => {
+  if (!confirm("OwnTracks trennen? Dein Standort kommt dann nur noch, solange diese App offen ist.")) return;
+  await api("owntracks/trennen", {});
+  $("#ot-anleitung").hidden = true;
+  melde("OwnTracks ist getrennt.", "ok");
+  await laden();
 }).catch(() => {}));
 
 /* ---------- Familie: Anzeigen aktuell halten ---------- */
