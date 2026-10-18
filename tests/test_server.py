@@ -63,7 +63,7 @@ ZUSTAENDE = {}
 @pytest.fixture(autouse=True)
 def sauber():
     conn = server.verbinden()
-    conn.executescript("DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;")
+    conn.executescript("DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;")
     conn.commit()
     conn.close()
     server._ip_fehler.clear()
@@ -804,6 +804,78 @@ def test_pollen_wird_gemerkt(client, ha):
     client.get("/api/pollen")
     client.get("/api/pollen")
     assert sum(1 for _, p, _ in ha if p == "/states") == 1
+
+
+# ------------------------------------------------------------------
+# Standorte der Familie
+
+
+def test_standort_nur_mit_eigener_freigabe(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    s = client.get("/api/status").json
+    assert s["standorte"] is True and s["standort_teilen"] is False
+    # Ohne Freigabe wird nichts gespeichert
+    assert post(client, "/api/standort", {"lat": 48.1, "lon": 11.5}).status_code == 403
+    assert post(client, "/api/standort/teilen", {"an": True}).status_code == 200
+    assert post(client, "/api/standort", {"lat": HEIM[0], "lon": HEIM[1], "genauigkeit": 12}).status_code == 200
+    d = client.get("/api/standorte").json
+    assert d["heim"] == {"lat": HEIM[0], "lon": HEIM[1]}
+    assert len(d["leute"]) == 1
+    p = d["leute"][0]
+    assert p["name"] == "Anna" and p["ich"] is True and p["von_zuhause_m"] == 0
+
+
+def test_standort_familie_sieht_einander_freunde_nicht(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    post(client, "/api/standort/teilen", {"an": True})
+    post(client, "/api/standort", {"lat": 48.2, "lon": 11.6})
+    bert = server.app.test_client()
+    registrieren(bert, "bert@example.org", "Bert")
+    freigeben("bert@example.org", familie=True)
+    d = bert.get("/api/standorte").json
+    assert [(p["name"], p["ich"]) for p in d["leute"]] == [("Anna", False)]
+    assert d["leute"][0]["von_zuhause_m"] > 5000
+    # Ein Freund ohne Familie sieht nichts und darf nichts senden
+    carl = server.app.test_client()
+    registrieren(carl, "carl@example.org", "Carl")
+    freigeben("carl@example.org")
+    assert carl.get("/api/standorte").status_code == 403
+    assert post(carl, "/api/standort/teilen", {"an": True}).status_code == 403
+
+
+def test_standort_aus_loescht_sofort(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    post(client, "/api/standort/teilen", {"an": True})
+    post(client, "/api/standort", {"lat": 48.2, "lon": 11.6})
+    assert post(client, "/api/standort/teilen", {"an": False}).status_code == 200
+    assert client.get("/api/standorte").json["leute"] == []
+    conn = server.verbinden()
+    assert conn.execute("SELECT COUNT(*) FROM standorte").fetchone()[0] == 0
+    conn.close()
+
+
+def test_standort_verschwindet_aus_der_familie(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    post(client, "/api/standort/teilen", {"an": True})
+    post(client, "/api/standort", {"lat": 48.2, "lon": 11.6})
+    bert = server.app.test_client()
+    registrieren(bert, "bert@example.org", "Bert")
+    freigeben("bert@example.org", familie=True)
+    admin = server.app.test_client()
+    post(admin, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/familie_aus", environ_base=INGRESS)
+    assert bert.get("/api/standorte").json["leute"] == []
+
+
+def test_standort_ungueltig(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    post(client, "/api/standort/teilen", {"an": True})
+    assert post(client, "/api/standort", {"lat": 200, "lon": 11}).status_code == 400
+    assert post(client, "/api/standort", {"lat": "hier"}).status_code == 400
 
 
 def test_sicherheitskoepfe(client, ha):

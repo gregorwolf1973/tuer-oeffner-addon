@@ -105,6 +105,8 @@ KAMERA_BILD_S = 0.8
 # des Benutzers. Sonst "oeffnete" ein Handy mit 5 km Ungenauigkeit ueberall.
 GENAUIGKEIT_MAX_M = 100
 PROTOKOLL_TAGE = 365
+# Aeltere Standorte werden geloescht - wer so lange nichts sendet, ist nicht "gerade" dort
+STANDORT_TAGE = 7
 PASSWORT_MIN = 8
 PASSWORT_MAX = 200
 
@@ -165,6 +167,8 @@ CREATE TABLE IF NOT EXISTS benutzer (
     fern INTEGER NOT NULL DEFAULT 0,
     -- 1 = Familie: Warmwasser und Staubsauger
     familie INTEGER NOT NULL DEFAULT 0,
+    -- 1 = zeigt der Familie den eigenen Standort (selbst eingeschaltet)
+    standort_teilen INTEGER NOT NULL DEFAULT 0,
     -- 1 = bei der Anmeldung wird nach dem Passwort ein Code verlangt
     zwei_faktor INTEGER NOT NULL DEFAULT 0,
     totp_geheimnis TEXT,
@@ -197,6 +201,14 @@ CREATE TABLE IF NOT EXISTS protokoll (
     ip TEXT
 );
 CREATE INDEX IF NOT EXISTS protokoll_zeit ON protokoll(zeit);
+-- Letzter freigegebener Standort je Familienmitglied
+CREATE TABLE IF NOT EXISTS standorte (
+    benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    genauigkeit REAL,
+    zeit INTEGER NOT NULL
+);
 """
 
 
@@ -238,6 +250,9 @@ def db_einrichten():
         # 0.3.0 kannte nur das Recht "warmwasser" - es wird zu "Familie"
         if "warmwasser" in spalten:
             conn.execute("UPDATE benutzer SET familie = warmwasser")
+    if "standort_teilen" not in spalten:
+        conn.execute("ALTER TABLE benutzer ADD COLUMN standort_teilen INTEGER NOT NULL DEFAULT 0")
+    conn.execute("DELETE FROM standorte WHERE zeit < ?", (int(time.time()) - STANDORT_TAGE * 86400,))
     conn.execute("DELETE FROM protokoll WHERE zeit < ?", (int(time.time()) - PROTOKOLL_TAGE * 86400,))
     conn.commit()
     conn.close()
@@ -408,8 +423,9 @@ def sicherheitskoepfe(antwort):
     antwort.headers["Referrer-Policy"] = "no-referrer"
     # 'self' bei frame-ancestors: unter dem Ingress zeigt Home Assistant die
     # Verwaltung in einem iframe derselben Herkunft.
+    # Die Kartenkacheln der Standort-Karte kommen von OpenStreetMap
     antwort.headers["Content-Security-Policy"] = (
-        "default-src 'self'; img-src 'self' data:; style-src 'self'; "
+        "default-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; style-src 'self'; "
         "frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
     )
     antwort.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
@@ -545,6 +561,8 @@ def api_status():
             staubsauger=ist_familie(b) and bool(STAUBSAUGER_ENTITAET),
             kamera=ist_familie(b) and bool(KAMERA_ENTITAET),
             pollen=ist_familie(b) and bool(POLLEN_PRAEFIX),
+            standorte=ist_familie(b),
+            standort_teilen=ist_familie(b) and bool(b["standort_teilen"]),
             wlan=b["status"] == "aktiv" and bool(WLAN_NAME),
             radius=RADIUS_METER,
         )
@@ -1239,6 +1257,73 @@ def api_pollen(b):
                 if _pollen["daten"] is None:
                     return fehler("Der Pollenflug ist gerade nicht abrufbar.", 502)
         return jsonify(_pollen["daten"])
+
+
+# ------------------------------------------------------------------
+# Standorte der Familie: jeder schaltet die Freigabe selbst ein. Gesendet
+# wird nur, solange die App offen ist - eine Web-App kann im Hintergrund
+# keinen Standort liefern.
+# ------------------------------------------------------------------
+
+
+@app.post("/api/standort/teilen")
+@braucht("voll")
+def api_standort_teilen(b):
+    if not ist_familie(b):
+        return fehler("Das dürfen nur Zugänge der Familie.", 403)
+    an = bool(json_eingabe().get("an"))
+    db().execute("UPDATE benutzer SET standort_teilen = ? WHERE id = ?", (int(an), b["id"]))
+    if not an:
+        # Aus heisst aus: der letzte Ort verschwindet sofort
+        db().execute("DELETE FROM standorte WHERE benutzer_id = ?", (b["id"],))
+    db().commit()
+    protokollieren("standort_an" if an else "standort_aus", b)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/standort")
+@braucht("voll")
+def api_standort(b):
+    if not ist_familie(b) or not b["standort_teilen"]:
+        return fehler("Die Standort-Freigabe ist aus.", 403)
+    e = json_eingabe()
+    try:
+        lat, lon = float(e["lat"]), float(e["lon"])
+        genauigkeit = max(0.0, float(e.get("genauigkeit") or 0))
+    except (KeyError, TypeError, ValueError):
+        return fehler("Ungültiger Standort.")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return fehler("Ungültiger Standort.")
+    db().execute(
+        "INSERT INTO standorte (benutzer_id, lat, lon, genauigkeit, zeit) VALUES (?,?,?,?,?)"
+        " ON CONFLICT(benutzer_id) DO UPDATE SET lat = excluded.lat, lon = excluded.lon,"
+        " genauigkeit = excluded.genauigkeit, zeit = excluded.zeit",
+        (b["id"], lat, lon, genauigkeit, int(time.time())))
+    db().commit()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/standorte")
+@braucht("voll")
+def api_standorte(b):
+    if not ist_familie(b):
+        return fehler("Das dürfen nur Zugänge der Familie.", 403)
+    heim = heimat()
+    leute = []
+    # Nur wer noch zur Familie gehoert, freigegeben ist und teilt
+    for r in db().execute(
+            "SELECT b.id, b.name, s.lat, s.lon, s.genauigkeit, s.zeit FROM standorte s"
+            " JOIN benutzer b ON b.id = s.benutzer_id"
+            " WHERE b.familie = 1 AND b.status = 'aktiv' AND b.standort_teilen = 1 ORDER BY b.name"):
+        eintrag = {k: r[k] for k in ("name", "lat", "lon", "genauigkeit", "zeit")} | {"ich": r["id"] == b["id"]}
+        if heim:
+            eintrag["von_zuhause_m"] = round(entfernung_m(r["lat"], r["lon"], *heim))
+        leute.append(eintrag)
+    return jsonify({
+        "heim": {"lat": heim[0], "lon": heim[1]} if heim else None,
+        "leute": leute,
+        "jetzt": int(time.time()),
+    })
 
 
 # ------------------------------------------------------------------

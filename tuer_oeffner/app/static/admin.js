@@ -46,6 +46,7 @@ const AKTION_TEXT = {
   admin_familie_an: "zur Familie hinzugefügt", admin_familie_aus: "aus der Familie entfernt",
   admin_2fa_zuruecksetzen: "2FA zurückgesetzt", admin_loeschen: "gelöscht",
   admin_warmwasser_ziel: "Warmwasser-Ziel geändert",
+  standort_an: "Standort-Freigabe an", standort_aus: "Standort-Freigabe aus",
 };
 
 function knopf(text, fn, klasse = "") {
@@ -102,7 +103,7 @@ function zugangKarte(b, familieAn) {
     () => aktion(b, b.fern ? "fern_aus" : "fern_an", b.fern ? null : `${b.name} darf dann von überall öffnen. Sicher?`),
     offen));
   if (familieAn) {
-    rechte.append(recht("Familie", "Warmwasser, Staubsauger, Kamera, Pollen", b.familie,
+    rechte.append(recht("Familie", "Warmwasser, Staubsauger, Kamera, Pollen, Standorte", b.familie,
       () => aktion(b, b.familie ? "familie_aus" : "familie_an"), b.status !== "gesperrt"));
   }
   karte.append(rechte);

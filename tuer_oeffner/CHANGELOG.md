@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.9.0
+
+- „Wo ist die Familie?“: Jeder Familien-Zugang kann seinen Standort selbst
+  freigeben. Die anderen sehen ihn auf einer kleinen OpenStreetMap-Karte und
+  in einer Liste mit Entfernung von zu Hause, Alter und Link zu Google Maps.
+  Gesendet wird alle 2 Minuten, solange die App offen ist. Freigabe beenden
+  löscht den Ort sofort, alte Orte verschwinden nach 7 Tagen.
+
 ## 0.8.0
 
 - Pollenflug für die Familie: Karte mit der DWD-Vorhersage für heute,

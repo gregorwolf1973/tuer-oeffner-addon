@@ -175,6 +175,41 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 }
 .kamera-live { font-size: .8rem; font-weight: 600; color: var(--schlecht); letter-spacing: .03em; }
 
+/* ---------- Wo ist die Familie? ---------- */
+
+.osm {
+  position: relative; height: 230px; margin-top: 12px; border-radius: 12px; overflow: hidden;
+  background: var(--grund); touch-action: pan-y;
+}
+.osm-kacheln img { position: absolute; width: 256px; height: 256px; max-width: none; user-select: none; }
+:root[data-theme="dunkel"] .osm-kacheln { filter: brightness(.75) contrast(1.1); }
+.osm-punkt {
+  position: absolute; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 700; font-size: .9rem;
+  background: var(--akzent); color: var(--auf-farbe); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.osm-punkt.heim { background: #fff; font-size: 1rem; }
+.osm-punkt.alt { opacity: .55; }
+.osm-zoom { position: absolute; right: 8px; top: 8px; display: grid; gap: 4px; }
+.osm-zoom .knopf { width: 36px; height: 36px; padding: 0; font-size: 1.2rem; line-height: 1; }
+.osm-quelle {
+  position: absolute; right: 4px; bottom: 2px; font-size: .68rem; padding: 0 4px; border-radius: 4px;
+  background: rgba(255, 255, 255, .8); color: #333; text-decoration: none;
+}
+.standort-liste { list-style: none; margin: 10px 0 0; padding: 0; }
+.standort-liste li {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--rand);
+}
+.standort-liste li:last-child { border-bottom: 0; }
+.standort-liste li div { display: grid; }
+.standort-liste li span { color: var(--leise); font-size: .85rem; }
+.standort-liste li a { font-size: .85rem; white-space: nowrap; }
+.standort-liste li.alt b { color: var(--leise); }
+.knopf.haupt.standort-knopf { margin-top: 12px; min-height: 52px; }
+.knopf.haupt.standort-knopf.aus { background: var(--flaeche); color: var(--text); border-color: var(--rand); }
+.standort-hinweis { margin: 6px 0 0; font-size: .82rem; }
+
 /* ---------- Pollenflug ---------- */
 
 .pollen-stand { font-size: .8rem; }

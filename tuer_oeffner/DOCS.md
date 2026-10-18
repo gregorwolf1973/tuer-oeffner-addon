@@ -31,6 +31,13 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   - **Kamera:** ein Livebild in der Haustür-Karte, etwa ein Bild pro
     Sekunde. Abgefragt wird nur, solange die App im Vordergrund und das Bild
     auf dem Bildschirm zu sehen ist.
+  - **Wo ist die Familie?** Jeder kann mit „Meinen Standort freigeben“
+    seinen Standort für die anderen sichtbar machen – auf einer kleinen
+    OpenStreetMap-Karte und als Liste („zu Hause“ bzw. Entfernung, „vor 5
+    Min.“, Link zu Google Maps). Gesendet wird alle 2 Minuten, aber nur,
+    solange die App offen ist: Eine Web-App kann im Hintergrund keinen
+    Standort liefern. „Freigabe beenden“ löscht den letzten Ort sofort;
+    Orte, die älter als 7 Tage sind, werden ohnehin gelöscht.
   - **Pollenflug** vom DWD für heute, morgen und übermorgen: belastete
     Arten mit Farbstufe (gering – mittel – hoch), der Rest eingeklappt.
 

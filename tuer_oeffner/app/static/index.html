@@ -133,6 +133,23 @@
         </div>
       </section>
 
+      <section id="standorte" class="karte" aria-labelledby="standorte-titel" hidden>
+        <div class="karte-kopf"><h2 id="standorte-titel">Wo ist die Familie?</h2></div>
+        <div id="osm" class="osm" hidden>
+          <div class="osm-kacheln"></div>
+          <div class="osm-punkte"></div>
+          <div class="osm-zoom">
+            <button type="button" class="knopf" data-zoom="1" aria-label="Näher heran">+</button>
+            <button type="button" class="knopf" data-zoom="-1" aria-label="Weiter weg">−</button>
+          </div>
+          <a class="osm-quelle" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>
+        </div>
+        <ul id="standort-liste" class="standort-liste"></ul>
+        <p id="standort-leer" class="leise" hidden>Gerade teilt niemand seinen Standort.</p>
+        <button type="button" id="standort-knopf" class="knopf haupt standort-knopf">Meinen Standort freigeben</button>
+        <p class="leise standort-hinweis" id="standort-hinweis">Die Familie sieht dann, wo du bist. Gesendet wird nur, solange diese App offen ist.</p>
+      </section>
+
       <section id="pollen" class="karte" aria-labelledby="pollen-titel" hidden>
         <div class="karte-kopf">
           <h2 id="pollen-titel">Pollenflug</h2>

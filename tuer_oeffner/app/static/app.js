@@ -101,6 +101,9 @@ async function laden() {
   $("#kamera").hidden = !zustand.kamera;
   $("#wlan").hidden = !zustand.wlan;
   $("#pollen").hidden = !zustand.pollen;
+  $("#standorte").hidden = !zustand.standorte;
+  ort.teilen = Boolean(zustand.standort_teilen);
+  ortKnopfZeigen();
   familieLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
@@ -628,12 +631,177 @@ async function pollenLaden() {
   } catch { /* Anzeige bleibt, wie sie war */ }
 }
 
+/* ---------- Wo ist die Familie? ----------
+   Jeder schaltet die Freigabe selbst ein. Gesendet wird alle 2 Minuten,
+   aber nur solange die App offen und im Vordergrund ist. */
+
+const ORT_SENDEN_MS = 2 * 60 * 1000;
+const ORT_LADEN_MS = 60 * 1000;
+const ort = { teilen: false, gesendet: 0, geladen: 0, daten: null, zoom: 0 };
+
+function ortKnopfZeigen() {
+  $("#standort-knopf").textContent = ort.teilen ? "Freigabe beenden" : "Meinen Standort freigeben";
+  $("#standort-knopf").classList.toggle("aus", ort.teilen);
+  $("#standort-hinweis").textContent = ort.teilen
+    ? "Dein Standort wird geteilt, solange diese App offen ist."
+    : "Die Familie sieht dann, wo du bist. Gesendet wird nur, solange diese App offen ist.";
+}
+
+async function ortSenden(sofort = false) {
+  if (!ort.teilen || document.hidden || $("#standorte").hidden) return;
+  if (!sofort && Date.now() - ort.gesendet < ORT_SENDEN_MS) return;
+  ort.gesendet = Date.now();
+  try {
+    await api("standort", await standort());
+    ortLaden(true);
+  } catch { /* naechster Versuch in 2 Minuten */ }
+}
+
+async function ortLaden(sofort = false) {
+  if (!sofort && Date.now() - ort.geladen < ORT_LADEN_MS) return;
+  try {
+    ort.daten = await api("standorte");
+    ort.geladen = Date.now();
+    ortZeigen();
+  } catch { /* Anzeige bleibt, wie sie war */ }
+}
+
+function alterText(sek) {
+  if (sek < 90) return "gerade eben";
+  if (sek < 3600) return `vor ${Math.round(sek / 60)} Min.`;
+  if (sek < 86400) return `vor ${Math.round(sek / 3600)} Std.`;
+  const tage = Math.round(sek / 86400);
+  return tage === 1 ? "vor 1 Tag" : `vor ${tage} Tagen`;
+}
+
+function wegText(m) {
+  if (m == null) return "";
+  if (m < 150) return "zu Hause";
+  if (m < 1000) return `${Math.round(m / 10) * 10} m von zu Hause`;
+  return `${(m / 1000).toFixed(m < 10000 ? 1 : 0).replace(".", ",")} km von zu Hause`;
+}
+
+function ortZeigen() {
+  const d = ort.daten;
+  if (!d) return;
+  $("#standort-leer").hidden = d.leute.length > 0;
+  $("#standort-liste").replaceChildren(...d.leute.map((p) => {
+    const li = document.createElement("li");
+    const alt = d.jetzt - p.zeit;
+    if (alt > 3600) li.className = "alt";
+    const kopf = document.createElement("div");
+    const name = document.createElement("b");
+    name.textContent = p.ich ? `${p.name} (du)` : p.name;
+    const wo = document.createElement("span");
+    wo.textContent = [wegText(p.von_zuhause_m), alterText(alt)].filter(Boolean).join(" · ");
+    kopf.append(name, wo);
+    const link = document.createElement("a");
+    link.href = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "In Karten öffnen";
+    li.append(kopf, link);
+    return li;
+  }));
+  karteZeichnen();
+}
+
+/* Eine kleine Karte aus OpenStreetMap-Kacheln, ohne Bibliothek */
+const KACHEL = 256;
+const merc = (lat, lon, z) => {
+  const n = KACHEL * 2 ** z;
+  const r = (lat * Math.PI) / 180;
+  return { x: ((lon + 180) / 360) * n, y: ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n };
+};
+
+function karteZeichnen() {
+  const d = ort.daten;
+  const box = $("#osm");
+  box.hidden = !d || !d.leute.length;
+  if (box.hidden) return;
+  const punkte = d.leute.map((p) => ({ lat: p.lat, lon: p.lon, text: p.name.slice(0, 1).toUpperCase(), titel: p.name, alt: d.jetzt - p.zeit > 3600 }));
+  if (d.heim) punkte.push({ lat: d.heim.lat, lon: d.heim.lon, text: "🏠", titel: "Zu Hause", heim: true });
+  const w = box.clientWidth;
+  const h = box.clientHeight;
+  // Groesste Naehe, bei der alle Punkte auf die Karte passen
+  let z = 17;
+  for (; z > 3; z--) {
+    const p = punkte.map((q) => merc(q.lat, q.lon, z));
+    const breit = Math.max(...p.map((q) => q.x)) - Math.min(...p.map((q) => q.x));
+    const hoch = Math.max(...p.map((q) => q.y)) - Math.min(...p.map((q) => q.y));
+    if (breit <= w - 70 && hoch <= h - 70) break;
+  }
+  z = Math.max(3, Math.min(18, z + ort.zoom));
+  const px = punkte.map((q) => merc(q.lat, q.lon, z));
+  const mx = (Math.max(...px.map((q) => q.x)) + Math.min(...px.map((q) => q.x))) / 2;
+  const my = (Math.max(...px.map((q) => q.y)) + Math.min(...px.map((q) => q.y))) / 2;
+  const links = mx - w / 2;
+  const oben = my - h / 2;
+  const anzahl = 2 ** z;
+  const kacheln = [];
+  for (let tx = Math.floor(links / KACHEL); tx <= Math.floor((links + w) / KACHEL); tx++) {
+    for (let ty = Math.floor(oben / KACHEL); ty <= Math.floor((oben + h) / KACHEL); ty++) {
+      if (ty < 0 || ty >= anzahl) continue;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.referrerPolicy = "origin";  // OpenStreetMap verlangt eine Herkunft
+      img.src = `https://tile.openstreetmap.org/${z}/${((tx % anzahl) + anzahl) % anzahl}/${ty}.png`;
+      img.style.left = `${tx * KACHEL - links}px`;
+      img.style.top = `${ty * KACHEL - oben}px`;
+      kacheln.push(img);
+    }
+  }
+  $(".osm-kacheln", box).replaceChildren(...kacheln);
+  $(".osm-punkte", box).replaceChildren(...punkte.map((q, i) => {
+    const m = document.createElement("span");
+    m.className = "osm-punkt" + (q.heim ? " heim" : "") + (q.alt ? " alt" : "");
+    m.textContent = q.text;
+    m.title = q.titel;
+    m.style.left = `${px[i].x - links}px`;
+    m.style.top = `${px[i].y - oben}px`;
+    return m;
+  }));
+}
+
+$$("[data-zoom]").forEach((k) => k.addEventListener("click", () => {
+  ort.zoom = Math.max(-8, Math.min(6, ort.zoom + Number(k.dataset.zoom)));
+  karteZeichnen();
+}));
+
+$("#standort-knopf").addEventListener("click", () => ausfuehren(async () => {
+  const knopf = $("#standort-knopf");
+  knopf.disabled = true;
+  try {
+    if (ort.teilen) {
+      await api("standort/teilen", { an: false });
+      ort.teilen = false;
+      melde("Dein Standort wird nicht mehr geteilt.", "ok");
+    } else {
+      // Erst den Standort holen - so fragt das Handy jetzt nach der Erlaubnis
+      const pos = await standort();
+      await api("standort/teilen", { an: true });
+      ort.teilen = true;
+      await api("standort", pos);
+      ort.gesendet = Date.now();
+      melde("Dein Standort ist für die Familie sichtbar.", "ok");
+    }
+    ortKnopfZeigen();
+    await ortLaden(true);
+  } finally {
+    knopf.disabled = false;
+  }
+}).catch(() => {}));
+
 /* ---------- Familie: Anzeigen aktuell halten ---------- */
 
 function familieLaden() {
   if (!$("#warmwasser").hidden) warmwasserLaden();
   if (!$("#staubsauger").hidden) staubsaugerLaden();
   if (!$("#pollen").hidden) pollenLaden();
+  if (!$("#standorte").hidden) {
+    ortSenden();
+    ortLaden();
+  }
 }
 
 setInterval(() => { if (!document.hidden) familieLaden(); }, 30000);
