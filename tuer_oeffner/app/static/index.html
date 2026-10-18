@@ -133,6 +133,20 @@
         </div>
       </section>
 
+      <section id="wlan" class="karte" aria-labelledby="wlan-titel" hidden>
+        <div class="karte-kopf"><h2 id="wlan-titel">Gäste-WLAN</h2></div>
+        <button type="button" id="wlan-zeigen" class="knopf haupt wlan-knopf" aria-expanded="false">WLAN-QR-Code zeigen</button>
+        <div id="wlan-daten" hidden>
+          <div id="wlan-qr" class="qr wlan-qr"></div>
+          <p class="leise mitte">Mit der Kamera des anderen Handys scannen – es verbindet sich dann von selbst.</p>
+          <dl class="wlan-liste">
+            <dt>WLAN-Name</dt><dd id="wlan-name"></dd>
+            <dt>Schlüssel</dt><dd><code id="wlan-schluessel"></code>
+              <button type="button" class="knopf klein" id="wlan-kopieren">Kopieren</button></dd>
+          </dl>
+        </div>
+      </section>
+
       <details class="einstellungen">
         <summary>Konto</summary>
         <h3>Darstellung</h3>

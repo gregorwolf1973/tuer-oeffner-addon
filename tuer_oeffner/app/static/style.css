@@ -175,6 +175,15 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 }
 .kamera-live { font-size: .8rem; font-weight: 600; color: var(--schlecht); letter-spacing: .03em; }
 
+/* ---------- Gaeste-WLAN ---------- */
+
+.knopf.haupt.wlan-knopf { margin-top: 12px; min-height: 52px; }
+.wlan-qr { margin: 16px 0 8px; }
+.wlan-liste { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin: 12px 0 0; }
+.wlan-liste dt { color: var(--leise); font-size: .92rem; }
+.wlan-liste dd { margin: 0; font-weight: 600; word-break: break-all; }
+.wlan-liste code { font-size: 1.05rem; margin-right: 8px; }
+
 /* ---------- Darstellung (unter "Konto") ---------- */
 
 .darstellung { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }

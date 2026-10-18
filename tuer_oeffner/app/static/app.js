@@ -99,6 +99,7 @@ async function laden() {
   $("#warmwasser").hidden = !zustand.warmwasser;
   $("#staubsauger").hidden = !zustand.staubsauger;
   $("#kamera").hidden = !zustand.kamera;
+  $("#wlan").hidden = !zustand.wlan;
   familieLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
@@ -214,6 +215,11 @@ document.addEventListener("click", async (ev) => {
   const aktion = ev.target.closest("[data-aktion]")?.dataset.aktion;
   if (aktion === "abmelden") {
     ev.preventDefault();
+    // Schluessel nicht fuer den naechsten auf diesem Geraet stehen lassen
+    $("#wlan-daten").hidden = true;
+    $("#wlan-qr").replaceChildren();
+    $("#wlan-schluessel").textContent = "";
+    $("#wlan-zeigen").textContent = "WLAN-QR-Code zeigen";
     await api("abmelden", {}).catch(() => {});
     melde("");
     laden();
@@ -508,6 +514,39 @@ if ("IntersectionObserver" in window) {
   kamera.imBild = true;
 }
 document.addEventListener("visibilitychange", kameraPruefen);
+
+/* ---------- Gaeste-WLAN ---------- */
+
+$("#wlan-zeigen").addEventListener("click", async () => {
+  const knopf = $("#wlan-zeigen");
+  const daten = $("#wlan-daten");
+  if (!daten.hidden) {
+    daten.hidden = true;
+    knopf.textContent = "WLAN-QR-Code zeigen";
+    knopf.setAttribute("aria-expanded", "false");
+    return;
+  }
+  try {
+    const d = await ausfuehren(() => api("wlan"));
+    // Das SVG kommt von unserem eigenen Server (segno), kein Fremdinhalt
+    $("#wlan-qr").innerHTML = d.svg;
+    $("#wlan-name").textContent = d.name;
+    $("#wlan-schluessel").textContent = d.schluessel || "– (offen)";
+    $("#wlan-kopieren").hidden = !d.schluessel || !navigator.clipboard;
+    daten.hidden = false;
+    knopf.textContent = "QR-Code ausblenden";
+    knopf.setAttribute("aria-expanded", "true");
+  } catch { /* Meldung steht schon */ }
+});
+
+$("#wlan-kopieren").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("#wlan-schluessel").textContent);
+    melde("Schlüssel kopiert.", "ok");
+  } catch {
+    melde("Kopieren ging nicht – bitte von Hand abschreiben.");
+  }
+});
 
 /* ---------- Familie: Anzeigen aktuell halten ---------- */
 

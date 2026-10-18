@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.6.0
+
+- Gäste-WLAN: Knopf „WLAN-QR-Code zeigen“ für jeden freigegebenen Zugang,
+  mit QR-Code zum Verbinden, WLAN-Name und Schlüssel (mit Kopieren). Neue
+  Optionen `wlan_name`, `wlan_schluessel` und `wlan_verschluesselung`.
+
 ## 0.5.0
 
 - Die Haustür hat jetzt eine eigene Karte wie Warmwasser und Staubsauger.

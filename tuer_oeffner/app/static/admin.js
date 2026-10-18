@@ -151,7 +151,7 @@ async function laden() {
   }
   zeilen.push(["Staubsauger", e.staubsauger_entitaet || "aus"]);
   if (e.staubsauger_entitaet) zeilen.push(["Staubsauger-Akku", e.staubsauger_batterie || "–"]);
-  zeilen.push(["Kamera (Familie)", e.kamera_entitaet || "aus"]);
+  zeilen.push(["Kamera (Familie)", e.kamera_entitaet || "aus"], ["Gäste-WLAN", e.wlan_name || "aus"]);
   $("#einstellungen").replaceChildren(...zeilen.flatMap(([k, v]) => [el("dt", k), el("dd", v)]));
 }
 

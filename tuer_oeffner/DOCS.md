@@ -31,6 +31,9 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
     auf dem Bildschirm zu sehen ist.
 
   Beides geht von überall, ohne Standortprüfung.
+- **Gäste-WLAN:** Jeder freigegebene Zugang – auch Freunde – hat in der App
+  den Knopf „WLAN-QR-Code zeigen“: QR-Code zum Scannen, dazu Name und
+  Schlüssel zum Abschreiben oder Kopieren.
 - **Benachrichtigung** an dich bei jedem Öffnen und jeder neuen
   Registrierung.
 - **Verwaltung** nur hier in Home Assistant (Seitenleiste „Türöffner“):
@@ -80,6 +83,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `staubsauger_entitaet` | der Saugroboter (`vacuum.…`), leer = keine Staubsauger-Karte |
 | `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
 | `kamera_entitaet` | Kamera für das Livebild (nur Familie), leer = kein Livebild |
+| `wlan_name`, `wlan_schluessel`, `wlan_verschluesselung` | Gäste-WLAN für den QR-Code-Knopf; ohne Name kein Knopf. `WPA` gilt auch für WPA2/WPA3 |
 
 ## Sicherheit
 

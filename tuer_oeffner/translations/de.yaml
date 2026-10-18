@@ -67,6 +67,16 @@ configuration:
       Livebild in der Haustür-Karte, nur für Zugänge der Familie, z. B.
       camera.t62_mainstream. Abgefragt wird nur, solange die App offen und das
       Bild zu sehen ist. Leer = kein Livebild.
+  wlan_name:
+    name: Gäste-WLAN – Name (SSID)
+    description: >-
+      Jeder freigegebene Zugang bekommt in der App einen Knopf, der Name,
+      Schlüssel und einen QR-Code zum Verbinden zeigt. Leer = kein WLAN-Knopf.
+  wlan_schluessel:
+    name: Gäste-WLAN – Schlüssel
+  wlan_verschluesselung:
+    name: Gäste-WLAN – Verschlüsselung
+    description: WPA gilt auch für WPA2 und WPA3.
   log_level:
     name: Protokollstufe
 network:

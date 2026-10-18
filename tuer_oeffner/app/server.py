@@ -38,6 +38,7 @@ from functools import wraps
 import pyotp
 import requests
 import segno
+import segno.helpers
 from flask import Flask, abort, g, jsonify, request, send_from_directory, session
 from webauthn import (
     generate_authentication_options,
@@ -73,6 +74,9 @@ WARMWASSER_LAEUFT = os.environ.get("WARMWASSER_LAEUFT", "").strip()
 STAUBSAUGER_ENTITAET = os.environ.get("STAUBSAUGER_ENTITAET", "").strip()
 STAUBSAUGER_BATTERIE = os.environ.get("STAUBSAUGER_BATTERIE", "").strip()
 KAMERA_ENTITAET = os.environ.get("KAMERA_ENTITAET", "").strip()
+WLAN_NAME = os.environ.get("WLAN_NAME", "").strip()
+WLAN_SCHLUESSEL = os.environ.get("WLAN_SCHLUESSEL", "")
+WLAN_VERSCHLUESSELUNG = os.environ.get("WLAN_VERSCHLUESSELUNG", "WPA").strip() or "WPA"
 INGRESS_ADRESSEN = {a.strip() for a in os.environ.get("INGRESS_ADRESSEN", "172.30.32.2").split(",") if a.strip()}
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 HA_API = os.environ.get("HA_API", "http://supervisor/core/api")
@@ -537,6 +541,7 @@ def api_status():
             warmwasser=ist_familie(b) and bool(WARMWASSER_ENTITAET),
             staubsauger=ist_familie(b) and bool(STAUBSAUGER_ENTITAET),
             kamera=ist_familie(b) and bool(KAMERA_ENTITAET),
+            wlan=b["status"] == "aktiv" and bool(WLAN_NAME),
             radius=RADIUS_METER,
         )
         if session.get("stufe") == "voll":
@@ -1149,6 +1154,29 @@ def api_kamera(b):
 
 
 # ------------------------------------------------------------------
+# Gaeste-WLAN: fuer jeden freigegebenen Zugang
+# ------------------------------------------------------------------
+
+
+@app.get("/api/wlan")
+@braucht("voll")
+def api_wlan(b):
+    if not WLAN_NAME:
+        return fehler("Das ist hier nicht eingerichtet.", 404)
+    if b["status"] != "aktiv":
+        return fehler("Dein Zugang ist noch nicht freigegeben.", 403)
+    offen = WLAN_VERSCHLUESSELUNG == "offen"
+    qr = segno.helpers.make_wifi(
+        ssid=WLAN_NAME, password=None if offen else WLAN_SCHLUESSEL,
+        security="nopass" if offen else WLAN_VERSCHLUESSELUNG)
+    return jsonify({
+        "name": WLAN_NAME,
+        "schluessel": "" if offen else WLAN_SCHLUESSEL,
+        "svg": qr.svg_inline(scale=6, border=2),
+    })
+
+
+# ------------------------------------------------------------------
 # Verwaltung (nur Ingress)
 # ------------------------------------------------------------------
 
@@ -1188,6 +1216,8 @@ def api_admin_uebersicht():
             "staubsauger_typ_ok": not STAUBSAUGER_ENTITAET or STAUBSAUGER_ENTITAET.startswith("vacuum."),
             "staubsauger_batterie": STAUBSAUGER_BATTERIE,
             "kamera_entitaet": KAMERA_ENTITAET,
+            # Der Schluessel selbst steht nur in den Optionen
+            "wlan_name": WLAN_NAME,
         },
     })
 

@@ -28,6 +28,8 @@ os.environ.update(
     STAUBSAUGER_ENTITAET="vacuum.sauger",
     STAUBSAUGER_BATTERIE="sensor.sauger_akku",
     KAMERA_ENTITAET="camera.haustuer",
+    WLAN_NAME="Gast",
+    WLAN_SCHLUESSEL="geheim;123",
 )
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tuer_oeffner", "app"))
 server = importlib.import_module("server")
@@ -688,6 +690,38 @@ def test_kamera_ohne_anmeldung_und_fehler(client, ha, monkeypatch):
 
     monkeypatch.setattr(server, "ha_bild", kaputt)
     assert client.get("/api/kamera").status_code == 502
+
+
+# ------------------------------------------------------------------
+# Gaeste-WLAN
+
+
+def test_wlan_fuer_jeden_freigegebenen(client, ha):
+    registrieren(client)
+    # Noch nicht freigegeben: kein Schluessel
+    assert client.get("/api/status").json["wlan"] is False
+    assert client.get("/api/wlan").status_code == 403
+    freigeben("anna@example.org")  # ohne Familie
+    assert client.get("/api/status").json["wlan"] is True
+    d = client.get("/api/wlan").json
+    assert d["name"] == "Gast" and d["schluessel"] == "geheim;123" and "<svg" in d["svg"]
+
+
+def test_wlan_nicht_ohne_anmeldung_und_nicht_in_der_verwaltung(client, ha):
+    assert client.get("/api/wlan").status_code == 401
+    admin = server.app.test_client()
+    e = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["einstellungen"]
+    assert e["wlan_name"] == "Gast" and "geheim" not in str(e)
+
+
+def test_wlan_offen_und_aus(client, ha, monkeypatch):
+    registrieren(client)
+    freigeben("anna@example.org")
+    monkeypatch.setattr(server, "WLAN_VERSCHLUESSELUNG", "offen")
+    assert client.get("/api/wlan").json["schluessel"] == ""
+    monkeypatch.setattr(server, "WLAN_NAME", "")
+    assert client.get("/api/status").json["wlan"] is False
+    assert client.get("/api/wlan").status_code == 404
 
 
 def test_sicherheitskoepfe(client, ha):
