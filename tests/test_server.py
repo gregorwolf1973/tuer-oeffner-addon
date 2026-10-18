@@ -22,6 +22,9 @@ os.environ.update(
     BREITENGRAD=str(HEIM[0]),
     LAENGENGRAD=str(HEIM[1]),
     RADIUS_METER="200",
+    WARMWASSER_ENTITAET="button.einmalige_ladung",
+    WARMWASSER_TEMPERATUR="sensor.ww_temperatur",
+    WARMWASSER_LAEUFT="binary_sensor.ww_laedt",
 )
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tuer_oeffner", "app"))
 server = importlib.import_module("server")
@@ -34,10 +37,17 @@ def ha(monkeypatch):
 
     def nachgebildet(methode, pfad, daten=None):
         aufrufe.append((methode, pfad, daten))
-        return {"latitude": HEIM[0], "longitude": HEIM[1]} if pfad == "/config" else []
+        if pfad == "/config":
+            return {"latitude": HEIM[0], "longitude": HEIM[1]}
+        if pfad.startswith("/states/"):
+            return ZUSTAENDE.get(pfad.removeprefix("/states/"))
+        return []
 
     monkeypatch.setattr(server, "ha_aufruf", nachgebildet)
     return aufrufe
+
+
+ZUSTAENDE = {}
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +58,12 @@ def sauber():
     conn.close()
     server._ip_fehler.clear()
     server._zuletzt_geoeffnet["t"] = 0.0
+    server._zuletzt_aufgeheizt["t"] = 0.0
+    ZUSTAENDE.clear()
+    ZUSTAENDE.update({
+        "sensor.ww_temperatur": {"state": "41.25", "attributes": {"unit_of_measurement": "°C"}},
+        "binary_sensor.ww_laedt": {"state": "off", "attributes": {}},
+    })
     yield
 
 
@@ -94,12 +110,14 @@ def registrieren(c, email="anna@example.org", name="Anna"):
     assert r.status_code == 200, r.json
 
 
-def freigeben(email, fern=False):
+def freigeben(email, fern=False, warmwasser=False):
     admin = server.app.test_client()
     bid = benutzer_id(email)
     assert post(admin, f"/api/admin/benutzer/{bid}/freigeben", environ_base=INGRESS).status_code == 200
     if fern:
         assert post(admin, f"/api/admin/benutzer/{bid}/fern_an", environ_base=INGRESS).status_code == 200
+    if warmwasser:
+        assert post(admin, f"/api/admin/benutzer/{bid}/warmwasser_an", environ_base=INGRESS).status_code == 200
 
 
 def nah():
@@ -443,8 +461,8 @@ def test_alte_datenbank_wird_nachgeruestet(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "DB_PFAD", str(pfad))
     server.db_einrichten()
     conn = sqlite3.connect(pfad)
-    assert conn.execute("SELECT email, zwei_faktor, benutzername FROM benutzer ORDER BY id").fetchall() == [
-        ("a@x.org", 1, None), ("b@x.org", 0, None)]
+    assert conn.execute("SELECT email, zwei_faktor, benutzername, warmwasser FROM benutzer ORDER BY id").fetchall() == [
+        ("a@x.org", 1, None, 0), ("b@x.org", 0, None, 0)]
     conn.close()
 
 
@@ -452,6 +470,96 @@ def test_registrierung_geschlossen(client, ha, monkeypatch):
     monkeypatch.setattr(server, "REGISTRIERUNG_OFFEN", False)
     r = post(client, "/api/registrieren", anmeldung("aaa", "a@example.org"))
     assert r.status_code == 403
+
+
+# ------------------------------------------------------------------
+# Warmwasser
+
+
+def aufgeheizt(ha):
+    return [d for _, p, d in ha if p == "/services/button/press" and d["entity_id"] == "button.einmalige_ladung"]
+
+
+def test_warmwasser_nur_mit_recht(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org")
+    assert client.get("/api/status").json["warmwasser"] is False
+    assert client.get("/api/warmwasser").status_code == 403
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 403
+    assert not aufgeheizt(ha)
+
+
+def test_warmwasser_braucht_freigabe(client, ha):
+    registrieren(client)
+    # Recht schon erteilt, aber noch nicht freigegeben
+    admin = server.app.test_client()
+    post(admin, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/warmwasser_an", environ_base=INGRESS)
+    assert client.get("/api/status").json["warmwasser"] is False
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 403
+
+
+def test_warmwasser_anzeige_und_aufheizen(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", warmwasser=True)
+    assert client.get("/api/status").json["warmwasser"] is True
+    assert client.get("/api/warmwasser").json == {"temperatur": 41.2, "einheit": "°C", "laeuft": False}
+    r = post(client, "/api/warmwasser/aufheizen")
+    assert r.status_code == 200, r.json
+    assert len(aufgeheizt(ha)) == 1
+    # Gleich noch einmal: gebremst
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 429
+    assert len(aufgeheizt(ha)) == 1
+    admin = server.app.test_client()
+    p = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["protokoll"]
+    assert p[0]["aktion"] == "warmwasser" and p[0]["name"] == "Anna"
+
+
+def test_warmwasser_laeuft_schon(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", warmwasser=True)
+    ZUSTAENDE["binary_sensor.ww_laedt"]["state"] = "on"
+    assert client.get("/api/warmwasser").json["laeuft"] is True
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 409
+    assert not aufgeheizt(ha)
+
+
+def test_warmwasser_sensor_nicht_verfuegbar(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", warmwasser=True)
+    ZUSTAENDE["sensor.ww_temperatur"] = {"state": "unavailable", "attributes": {}}
+    del ZUSTAENDE["binary_sensor.ww_laedt"]
+    assert client.get("/api/warmwasser").json == {"temperatur": None, "einheit": None, "laeuft": None}
+    # Ohne Lade-Anzeige wird trotzdem aufgeheizt
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 200
+    assert len(aufgeheizt(ha)) == 1
+
+
+def test_warmwasser_aus_ohne_entitaet(client, ha, monkeypatch):
+    monkeypatch.setattr(server, "WARMWASSER_ENTITAET", "")
+    registrieren(client)
+    freigeben("anna@example.org", warmwasser=True)
+    assert client.get("/api/status").json["warmwasser"] is False
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 403
+
+
+def test_warmwasser_recht_entziehen_und_sperren(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", warmwasser=True)
+    admin = server.app.test_client()
+    bid = benutzer_id("anna@example.org")
+    b = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["benutzer"][0]
+    assert b["warmwasser"] == 1
+    post(admin, f"/api/admin/benutzer/{bid}/warmwasser_aus", environ_base=INGRESS)
+    assert client.get("/api/status").json["warmwasser"] is False
+    post(admin, f"/api/admin/benutzer/{bid}/warmwasser_an", environ_base=INGRESS)
+    post(admin, f"/api/admin/benutzer/{bid}/sperren", environ_base=INGRESS)
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 401
+
+
+def test_warmwasser_admin_nur_ingress(client, ha):
+    registrieren(client)
+    r = post(client, f"/api/admin/benutzer/{benutzer_id('anna@example.org')}/warmwasser_an")
+    assert r.status_code == 404
 
 
 def test_sicherheitskoepfe(client, ha):

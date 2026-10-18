@@ -73,6 +73,8 @@ async function laden() {
   $("#wartet").hidden = zustand.status === "aktiv";
   $("#oeffnen").hidden = zustand.status !== "aktiv";
   $("#fern").hidden = !zustand.fern;
+  $("#warmwasser").hidden = !zustand.warmwasser;
+  if (zustand.warmwasser) warmwasserLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
   const liste = $("#passkeys");
@@ -351,6 +353,56 @@ $$(".schieber").forEach((schieber) => {
       oeffnen(schieber.dataset.modus, schieber);
     }
   });
+});
+
+/* ---------- Warmwasser ---------- */
+
+let wwStartet = false;
+
+function warmwasserZeigen(d) {
+  const temp = $("#ww-temperatur");
+  temp.textContent = d.temperatur == null
+    ? "–"
+    : `${String(d.temperatur).replace(".", ",")} ${d.einheit}`;
+  const knopf = $("#ww-aufheizen");
+  knopf.disabled = wwStartet || d.laeuft === true;
+  knopf.textContent = d.laeuft ? "Heizt gerade auf …" : "Wasser aufheizen";
+  $("#ww-status").textContent = d.laeuft
+    ? "Das Wasser wird gerade aufgeheizt."
+    : "Temperatur im Speicher";
+}
+
+async function warmwasserLaden() {
+  try {
+    warmwasserZeigen(await api("warmwasser"));
+  } catch { /* Anzeige bleibt, wie sie war */ }
+}
+
+$("#ww-aufheizen").addEventListener("click", async () => {
+  const knopf = $("#ww-aufheizen");
+  wwStartet = true;
+  knopf.disabled = true;
+  knopf.textContent = "Starte …";
+  try {
+    await ausfuehren(() => api("warmwasser/aufheizen", {}));
+    if (navigator.vibrate) navigator.vibrate(80);
+    melde("Das Wasser wird aufgeheizt.", "ok");
+    knopf.textContent = "Heizt gerade auf …";
+    $("#ww-status").textContent = "Gestartet. Die Wärmepumpe meldet sich gleich.";
+    // Die Waermepumpe meldet die Ladung erst nach einer Weile
+    setTimeout(() => { wwStartet = false; warmwasserLaden(); }, 60000);
+  } catch {
+    wwStartet = false;
+    warmwasserLaden();
+  }
+});
+
+// Temperatur aktuell halten, solange die App offen ist
+setInterval(() => {
+  if (!document.hidden && !$("#warmwasser").hidden) warmwasserLaden();
+}, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !$("#warmwasser").hidden) warmwasserLaden();
 });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

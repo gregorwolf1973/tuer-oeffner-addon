@@ -1,10 +1,10 @@
 name: Türöffner
-version: "0.2.0"
+version: "0.3.0"
 slug: tuer_oeffner
 # Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
 # jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
 image: ghcr.io/gregorwolf1973/{arch}-addon-tuer_oeffner
-description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich
+description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich. Für die Familie zusätzlich Warmwasser aufheizen
 url: https://github.com/gregorwolf1973/tuer-oeffner-addon
 arch:
   - aarch64
@@ -34,6 +34,9 @@ options:
   sitzung_tage: 30
   registrierung_offen: true
   zwei_faktor_pflicht: true
+  warmwasser_entitaet: "button.e3_vitocal_einmalige_aufladung_aktivieren"
+  warmwasser_temperatur: "sensor.e3_vitocal_ww_speichertemperatur"
+  warmwasser_laeuft: "binary_sensor.e3_vitocal_einmalige_ladung"
   log_level: info
 schema:
   tuer_entitaet: str?
@@ -45,4 +48,7 @@ schema:
   sitzung_tage: int(1,365)
   registrierung_offen: bool
   zwei_faktor_pflicht: bool
+  warmwasser_entitaet: str?
+  warmwasser_temperatur: str?
+  warmwasser_laeuft: str?
   log_level: list(debug|info|warning|error)

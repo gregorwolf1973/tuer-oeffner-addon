@@ -12,6 +12,7 @@
   --schlecht-grund: #fbe9e7;
   --warn-grund: #fff4d6;
   --fern: #7a4fb0;
+  --warm: #c2410c;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -29,6 +30,7 @@
     --schlecht-grund: #3a1d1b;
     --warn-grund: #3a3115;
     --fern: #c3a3ec;
+    --warm: #fb923c;
   }
 }
 
@@ -106,3 +108,16 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 .arbeitet .spur { opacity: .85; }
 .offen .spur { background: var(--gut); }
 .griff:focus-visible { outline: 3px solid #ffd54f; }
+
+/* ---------- Warmwasser ---------- */
+
+.karte {
+  margin: 28px 0 8px; padding: 16px; border-radius: 16px;
+  background: var(--flaeche); border: 1px solid var(--rand);
+}
+.karte-kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.karte h2 { margin: 0; }
+.ww-temperatur { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--warm); }
+.ww-status { margin: 4px 0 14px; min-height: 1.4em; }
+/* Gross genug fuer den Daumen, auch mit Handschuh */
+.knopf.haupt.warm { background: var(--warm); border-color: var(--warm); min-height: 56px; font-size: 1.05rem; touch-action: manipulation; }

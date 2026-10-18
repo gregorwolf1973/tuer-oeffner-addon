@@ -9,6 +9,9 @@ export LAENGENGRAD="$(bashio::config 'laengengrad')"
 export SITZUNG_TAGE="$(bashio::config 'sitzung_tage')"
 export REGISTRIERUNG_OFFEN="$(bashio::config 'registrierung_offen')"
 export ZWEI_FAKTOR_PFLICHT="$(bashio::config 'zwei_faktor_pflicht')"
+export WARMWASSER_ENTITAET="$(bashio::config 'warmwasser_entitaet')"
+export WARMWASSER_TEMPERATUR="$(bashio::config 'warmwasser_temperatur')"
+export WARMWASSER_LAEUFT="$(bashio::config 'warmwasser_laeuft')"
 export LOG_LEVEL="$(bashio::config 'log_level')"
 export DATA_DIR=/data
 

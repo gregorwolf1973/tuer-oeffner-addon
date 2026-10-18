@@ -41,6 +41,8 @@ const AKTION_TEXT = {
   passwort_geaendert: "Passwort geändert", konto_kurz_gesperrt: "15 min gesperrt (Fehlversuche)",
   admin_freigeben: "freigegeben", admin_sperren: "gesperrt", admin_entsperren: "entsperrt",
   admin_fern_an: "Fern-Recht erteilt", admin_fern_aus: "Fern-Recht entzogen",
+  warmwasser: "Warmwasser aufgeheizt",
+  admin_warmwasser_an: "Warmwasser-Recht erteilt", admin_warmwasser_aus: "Warmwasser-Recht entzogen",
   admin_2fa_zuruecksetzen: "2FA zurückgesetzt", admin_loeschen: "gelöscht",
 };
 
@@ -76,6 +78,7 @@ async function laden() {
   else if (!e.entitaet_typ_ok) warn.push(`„${e.tuer_entitaet}“ ist kein unterstützter Typ (switch, button, script, lock, automation …).`);
   if (!e.heim_bekannt) warn.push("Der Standort der Haustür ist unbekannt – Öffnen in der Nähe geht nicht.");
   if (!e.externe_adresse.startsWith("https://")) warn.push("Keine externe https-Adresse eingestellt – Passkeys sind aus.");
+  if (!e.warmwasser_typ_ok) warn.push(`„${e.warmwasser_entitaet}“ ist kein unterstützter Typ fürs Warmwasser (button, switch, script …).`);
   if (!e.benachrichtigung) warn.push("Kein Benachrichtigungsdienst eingestellt – du erfährst nicht, wer öffnet.");
   $("#warnungen").replaceChildren(...warn.map((w) => el("p", w, "hinweis")));
 
@@ -85,7 +88,8 @@ async function laden() {
     const st = el("td");
     st.append(el("span", STATUS[b.status] || b.status, "status " + b.status));
     tr.append(st);
-    tr.append(el("td", b.fern ? "ja" : "nein"), el("td", b.zwei_faktor ? "an" : "aus"),
+    tr.append(el("td", b.fern ? "ja" : "nein"), el("td", b.warmwasser ? "ja" : "nein"),
+      el("td", b.zwei_faktor ? "an" : "aus"),
       el("td", String(b.passkeys)), el("td", zeit(b.zuletzt_geoeffnet)));
     const td = el("td");
     if (b.status === "wartet") td.append(knopf("Freigeben", () => aktion(b, "freigeben")));
@@ -93,6 +97,10 @@ async function laden() {
       td.append(knopf(b.fern ? "Fern-Recht entziehen" : "Fern-Recht geben",
         () => aktion(b, b.fern ? "fern_aus" : "fern_an",
           b.fern ? null : `${b.name} darf dann von überall öffnen. Sicher?`)));
+      if (e.warmwasser_entitaet) {
+        td.append(knopf(b.warmwasser ? "Warmwasser entziehen" : "Warmwasser erlauben",
+          () => aktion(b, b.warmwasser ? "warmwasser_aus" : "warmwasser_an")));
+      }
     }
     if (b.status === "gesperrt") td.append(knopf("Entsperren", () => aktion(b, "entsperren")));
     else td.append(knopf("Sperren", () => aktion(b, "sperren", `Zugang von ${b.name} sperren?`)));
@@ -105,7 +113,7 @@ async function laden() {
   if (!d.benutzer.length) {
     const tr = el("tr");
     const td = el("td", "Noch niemand registriert. Den Freunden die Adresse geben – sie registrieren sich selbst.", "leise");
-    td.colSpan = 9;
+    td.colSpan = 10;
     tr.append(td);
     $("#benutzer").replaceChildren(tr);
   }
@@ -125,7 +133,12 @@ async function laden() {
     ["Standort der Tür", e.heim_bekannt ? "bekannt" : "unbekannt"],
     ["Registrierung", e.registrierung_offen ? "offen" : "geschlossen"],
     ["2FA", e.zwei_faktor_pflicht ? "Pflicht" : "freiwillig (jeder schaltet selbst)"],
+    ["Warmwasser", e.warmwasser_entitaet || "aus"],
   ];
+  if (e.warmwasser_entitaet) {
+    zeilen.push(["Warmwasser-Temperatur", e.warmwasser_temperatur || "–"],
+      ["Warmwasser lädt", e.warmwasser_laeuft || "–"]);
+  }
   $("#einstellungen").replaceChildren(...zeilen.flatMap(([k, v]) => [el("dt", k), el("dd", v)]));
 }
 

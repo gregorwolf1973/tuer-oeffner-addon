@@ -1,5 +1,17 @@
 # Änderungen
 
+## 0.3.0
+
+- Warmwasser für die Familie: Zugänge mit dem neuen Recht „Warmwasser“
+  sehen in der App die Speichertemperatur und einen großen Knopf „Wasser
+  aufheizen“. Er löst die eingestellte Entität aus, voreingestellt die
+  einmalige Ladung der Vitocal-Wärmepumpe. Läuft schon eine Ladung, ist der
+  Knopf gesperrt.
+- Neue Optionen `warmwasser_entitaet`, `warmwasser_temperatur` und
+  `warmwasser_laeuft`.
+- Verwaltung: Spalte und Knopf für das Warmwasser-Recht, Aufheizen steht im
+  Protokoll.
+
 ## 0.2.0
 
 - Anmelden mit Benutzername oder Mailadresse. Neue Zugänge wählen bei der

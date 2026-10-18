@@ -19,10 +19,14 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   geöffnet wird nur bis zum eingestellten Radius um die Haustür.
 - **Fern-Recht:** Ausgewählte Zugänge bekommen einen zweiten, lila
   Schieber „Aus der Ferne öffnen“ – ohne Standortprüfung.
+- **Warmwasser für die Familie:** Zugänge mit dem Recht „Warmwasser“ sehen
+  in der App die Speichertemperatur und einen Knopf „Wasser aufheizen“. Er
+  startet die einmalige Ladung der Wärmepumpe – von überall, ohne
+  Standortprüfung. Läuft schon eine Ladung, ist der Knopf gesperrt.
 - **Benachrichtigung** an dich bei jedem Öffnen und jeder neuen
   Registrierung.
 - **Verwaltung** nur hier in Home Assistant (Seitenleiste „Türöffner“):
-  freigeben, Fern-Recht, sperren, 2FA zurücksetzen, löschen, Protokoll und
+  freigeben, Fern-Recht, Warmwasser-Recht, sperren, 2FA zurücksetzen, löschen, Protokoll und
   ein Knopf zum Testen. Aus dem Internet ist die Verwaltung nicht
   erreichbar.
 
@@ -45,6 +49,9 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
    Öffnen ab.
 6. Selbst registrieren, in der Verwaltung freigeben und dir das Fern-Recht
    geben. Dann den Freunden die Adresse schicken.
+7. **Familie:** Jeder registriert sich genauso. In der Verwaltung freigeben
+   und „Warmwasser erlauben“ drücken. Die drei Warmwasser-Optionen sind für
+   die Viessmann-Wärmepumpe (ViCare) schon ausgefüllt.
 
 ## Optionen
 
@@ -58,6 +65,9 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `sitzung_tage` | so lange bleibt man angemeldet |
 | `registrierung_offen` | aus = niemand Neues kann sich registrieren |
 | `zwei_faktor_pflicht` | an = jeder muss die 2FA einrichten; aus = freiwillig, jeder schaltet sie unter „Konto“ selbst |
+| `warmwasser_entitaet` | was das Aufheizen startet (gleiche Typen wie bei der Tür), leer = keine Warmwasser-Funktion |
+| `warmwasser_temperatur` | Sensor für die Temperaturanzeige in der App, leer = keine Anzeige |
+| `warmwasser_laeuft` | binary_sensor, der an ist, solange aufgeheizt wird – verhindert doppeltes Starten |
 
 ## Sicherheit
 
@@ -72,7 +82,10 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 - Sperren, „2FA zurücksetzen“ und ein Passwortwechsel melden alle Geräte des
   Zugangs sofort ab. Nach „2FA zurücksetzen“ ist wieder deine Freigabe nötig.
 - Passwort vergessen: den Zugang löschen, der Freund registriert sich neu.
-- Zwischen zwei Öffnungen liegen mindestens 8 Sekunden.
+- Zwischen zwei Öffnungen liegen mindestens 8 Sekunden, zwischen zweimal
+  Aufheizen mindestens eine Minute.
+- Das Warmwasser-Recht gilt nur für freigegebene Zugänge. Sperren nimmt es
+  sofort mit weg.
 - Die Standortprüfung schützt vor **versehentlichem** Öffnen von unterwegs.
   Gegen jemanden, der seinen Standort fälscht, schützt sie nicht – dagegen
   helfen Freigabe, 2FA und das Protokoll.

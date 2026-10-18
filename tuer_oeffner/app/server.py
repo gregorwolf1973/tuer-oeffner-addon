@@ -17,6 +17,10 @@ Zwei Gesichter, ein Prozess:
 
 Die Tuer selbst schaltet Home Assistant: das Add-on ruft ueber die
 Supervisor-API einen Dienst fuer die eingestellte Entitaet auf.
+
+Dazu, fuer die Familie: Warmwasser aufheizen. Wer vom Admin das Recht
+"Warmwasser" bekommt, sieht in der App die Speichertemperatur und einen
+Knopf, der z. B. die einmalige Ladung der Waermepumpe ausloest.
 """
 
 import json
@@ -62,6 +66,9 @@ BENACHRICHTIGUNG = os.environ.get("BENACHRICHTIGUNG", "").strip().removeprefix("
 SITZUNG_TAGE = int(os.environ.get("SITZUNG_TAGE", "30") or 30)
 REGISTRIERUNG_OFFEN = os.environ.get("REGISTRIERUNG_OFFEN", "true").lower() == "true"
 ZWEI_FAKTOR_PFLICHT = os.environ.get("ZWEI_FAKTOR_PFLICHT", "true").lower() == "true"
+WARMWASSER_ENTITAET = os.environ.get("WARMWASSER_ENTITAET", "").strip()
+WARMWASSER_TEMPERATUR = os.environ.get("WARMWASSER_TEMPERATUR", "").strip()
+WARMWASSER_LAEUFT = os.environ.get("WARMWASSER_LAEUFT", "").strip()
 INGRESS_ADRESSEN = {a.strip() for a in os.environ.get("INGRESS_ADRESSEN", "172.30.32.2").split(",") if a.strip()}
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 HA_API = os.environ.get("HA_API", "http://supervisor/core/api")
@@ -76,6 +83,9 @@ IP_FEHLER_MAX = 20
 IP_FENSTER_S = 15 * 60
 # Zwischen zwei Oeffnungen - ein doppelter Wisch soll nicht zweimal schalten
 ABKLINGZEIT_S = 8
+# Die Waermepumpe braucht einen Moment, bis die Ladung als "laeuft" sichtbar
+# ist - so loest ein ungeduldiges Doppeltippen nicht zweimal aus
+WARMWASSER_ABKLINGZEIT_S = 60
 # Die Ungenauigkeit des Standorts zaehlt hoechstens bis hierhin zugunsten
 # des Benutzers. Sonst "oeffnete" ein Handy mit 5 km Ungenauigkeit ueberall.
 GENAUIGKEIT_MAX_M = 100
@@ -138,6 +148,8 @@ CREATE TABLE IF NOT EXISTS benutzer (
     -- wartet: auf Freigabe | aktiv | gesperrt
     status TEXT NOT NULL DEFAULT 'neu',
     fern INTEGER NOT NULL DEFAULT 0,
+    -- 1 = darf das Warmwasser aufheizen (Familie)
+    warmwasser INTEGER NOT NULL DEFAULT 0,
     -- 1 = bei der Anmeldung wird nach dem Passwort ein Code verlangt
     zwei_faktor INTEGER NOT NULL DEFAULT 0,
     totp_geheimnis TEXT,
@@ -206,6 +218,8 @@ def db_einrichten():
     if "zwei_faktor" not in spalten:
         conn.execute("ALTER TABLE benutzer ADD COLUMN zwei_faktor INTEGER NOT NULL DEFAULT 0")
         conn.execute("UPDATE benutzer SET zwei_faktor = 1 WHERE status != 'neu'")
+    if "warmwasser" not in spalten:
+        conn.execute("ALTER TABLE benutzer ADD COLUMN warmwasser INTEGER NOT NULL DEFAULT 0")
     conn.execute("DELETE FROM protokoll WHERE zeit < ?", (int(time.time()) - PROTOKOLL_TAGE * 86400,))
     conn.commit()
     conn.close()
@@ -251,12 +265,28 @@ def ha_aufruf(methode, pfad, daten=None):
     return antwort.json() if antwort.content else None
 
 
-def tuer_schalten():
-    domain = TUER_ENTITAET.split(".", 1)[0]
+def ausloesen(entitaet):
+    domain = entitaet.split(".", 1)[0]
     dienst = DIENSTE.get(domain)
     if not dienst:
-        raise RuntimeError(f"Entitaet {TUER_ENTITAET!r} ist nicht eingestellt oder kein bekannter Typ")
-    ha_aufruf("POST", f"/services/{domain}/{dienst}", {"entity_id": TUER_ENTITAET})
+        raise RuntimeError(f"Entitaet {entitaet!r} ist nicht eingestellt oder kein bekannter Typ")
+    ha_aufruf("POST", f"/services/{domain}/{dienst}", {"entity_id": entitaet})
+
+
+def tuer_schalten():
+    ausloesen(TUER_ENTITAET)
+
+
+def zustand_lesen(entitaet):
+    """Zustand und Attribute einer Entitaet - oder None, wenn nicht
+    eingestellt oder nicht lesbar. Die Anzeige haengt nie daran."""
+    if not entitaet:
+        return None
+    try:
+        return ha_aufruf("GET", f"/states/{entitaet}")
+    except Exception as fehler:  # noqa: BLE001
+        log.warning("Zustand von %s nicht lesbar: %s", entitaet, fehler)
+        return None
 
 
 def melden(text):
@@ -482,6 +512,7 @@ def api_status():
             email=b["email"],
             zwei_faktor=bool(b["zwei_faktor"]),
             fern=bool(b["fern"]),
+            warmwasser=darf_warmwasser(b),
             radius=RADIUS_METER,
         )
         if session.get("stufe") == "voll":
@@ -951,6 +982,63 @@ def api_oeffnen(b):
 
 
 # ------------------------------------------------------------------
+# Warmwasser
+# ------------------------------------------------------------------
+
+_warmwasser_sperre = threading.Lock()
+_zuletzt_aufgeheizt = {"t": 0.0}
+
+
+def darf_warmwasser(b):
+    return bool(WARMWASSER_ENTITAET and b["warmwasser"] and b["status"] == "aktiv")
+
+
+def warmwasser_zustand():
+    temperatur = einheit = laeuft = None
+    z = zustand_lesen(WARMWASSER_TEMPERATUR)
+    if z:
+        try:
+            temperatur = round(float(z.get("state")), 1)
+            einheit = (z.get("attributes") or {}).get("unit_of_measurement") or "°C"
+        except (TypeError, ValueError):
+            pass  # "unavailable" - dann eben keine Anzeige
+    z = zustand_lesen(WARMWASSER_LAEUFT)
+    if z and z.get("state") in ("on", "off"):
+        laeuft = z["state"] == "on"
+    return {"temperatur": temperatur, "einheit": einheit, "laeuft": laeuft}
+
+
+@app.get("/api/warmwasser")
+@braucht("voll")
+def api_warmwasser(b):
+    if not darf_warmwasser(b):
+        return fehler("Dein Zugang darf das Warmwasser nicht aufheizen.", 403)
+    return jsonify(warmwasser_zustand())
+
+
+@app.post("/api/warmwasser/aufheizen")
+@braucht("voll")
+def api_warmwasser_aufheizen(b):
+    if not darf_warmwasser(b):
+        return fehler("Dein Zugang darf das Warmwasser nicht aufheizen.", 403)
+    with _warmwasser_sperre:
+        if time.time() - _zuletzt_aufgeheizt["t"] < WARMWASSER_ABKLINGZEIT_S:
+            return fehler("Das Aufheizen wurde gerade erst gestartet.", 429)
+        if warmwasser_zustand()["laeuft"]:
+            return fehler("Das Wasser wird gerade schon aufgeheizt.", 409)
+        try:
+            ausloesen(WARMWASSER_ENTITAET)
+        except Exception as fehl:  # noqa: BLE001
+            log.error("Warmwasser nicht ausgeloest: %s", fehl)
+            protokollieren("fehler", b, f"Warmwasser: {fehl}")
+            return fehler("Das Aufheizen ließ sich nicht starten. Bitte Bescheid geben.", 502)
+        _zuletzt_aufgeheizt["t"] = time.time()
+    protokollieren("warmwasser", b)
+    log.info("Warmwasser aufgeheizt von %s", b["name"])
+    return jsonify({"ok": True})
+
+
+# ------------------------------------------------------------------
 # Verwaltung (nur Ingress)
 # ------------------------------------------------------------------
 
@@ -959,8 +1047,8 @@ def api_oeffnen(b):
 @nur_ingress
 def api_admin_uebersicht():
     benutzer = [
-        {k: r[k] for k in ("id", "name", "benutzername", "email", "status", "fern", "zwei_faktor", "angelegt",
-                           "freigegeben", "zuletzt_geoeffnet")}
+        {k: r[k] for k in ("id", "name", "benutzername", "email", "status", "fern", "warmwasser", "zwei_faktor",
+                           "angelegt", "freigegeben", "zuletzt_geoeffnet")}
         | {"passkeys": r["n_pk"]}
         for r in db().execute(
             "SELECT b.*, (SELECT COUNT(*) FROM passkeys p WHERE p.benutzer_id = b.id) AS n_pk"
@@ -982,11 +1070,16 @@ def api_admin_uebersicht():
             "heim_bekannt": bool(heim),
             "registrierung_offen": REGISTRIERUNG_OFFEN,
             "zwei_faktor_pflicht": ZWEI_FAKTOR_PFLICHT,
+            "warmwasser_entitaet": WARMWASSER_ENTITAET,
+            "warmwasser_typ_ok": not WARMWASSER_ENTITAET or WARMWASSER_ENTITAET.split(".", 1)[0] in DIENSTE,
+            "warmwasser_temperatur": WARMWASSER_TEMPERATUR,
+            "warmwasser_laeuft": WARMWASSER_LAEUFT,
         },
     })
 
 
-AKTIONEN = {"freigeben", "sperren", "entsperren", "fern_an", "fern_aus", "2fa_zuruecksetzen", "loeschen"}
+AKTIONEN = {"freigeben", "sperren", "entsperren", "fern_an", "fern_aus", "warmwasser_an", "warmwasser_aus",
+            "2fa_zuruecksetzen", "loeschen"}
 
 
 @app.post("/api/admin/benutzer/<int:bid>/<aktion>")
@@ -1009,6 +1102,8 @@ def api_admin_benutzer(bid, aktion):
         db().execute("UPDATE benutzer SET status = 'aktiv', gesperrt_bis = 0, fehlversuche = 0 WHERE id = ?", (bid,))
     elif aktion in ("fern_an", "fern_aus"):
         db().execute("UPDATE benutzer SET fern = ? WHERE id = ?", (int(aktion == "fern_an"), bid))
+    elif aktion in ("warmwasser_an", "warmwasser_aus"):
+        db().execute("UPDATE benutzer SET warmwasser = ? WHERE id = ?", (int(aktion == "warmwasser_an"), bid))
     elif aktion == "2fa_zuruecksetzen":
         # Neues Geheimnis, 2FA aus, Passkeys weg, alle Sitzungen beendet - und
         # wieder Freigabe noetig, denn wer sich jetzt anmeldet, braucht nur
@@ -1050,6 +1145,8 @@ if __name__ == "__main__":
              "Pflicht" if ZWEI_FAKTOR_PFLICHT else "freiwillig")
     if not TUER_ENTITAET:
         log.warning("Keine Tuer-Entitaet eingestellt - Oeffnen ist nicht moeglich")
+    if WARMWASSER_ENTITAET:
+        log.info("Warmwasser: %s", WARMWASSER_ENTITAET)
     if not passkey_moeglich():
         log.warning("Keine externe https-Adresse eingestellt - Passkeys sind aus")
     serve(app, host="0.0.0.0", port=PORT, threads=8, ident=None)

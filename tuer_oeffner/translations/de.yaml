@@ -38,6 +38,20 @@ configuration:
       An = jeder muss eine Authenticator-App einrichten. Aus = Anmeldung mit
       Passwort reicht, jeder kann die 2FA in der App unter „Konto“ selbst
       ein- und ausschalten.
+  warmwasser_entitaet:
+    name: Warmwasser aufheizen
+    description: >-
+      Was das Aufheizen startet, z. B. der ViCare-Knopf
+      button.e3_vitocal_einmalige_aufladung_aktivieren. Leer = keine
+      Warmwasser-Funktion. Wer sie bekommt, legst du in der Verwaltung fest.
+  warmwasser_temperatur:
+    name: Warmwasser-Temperatur
+    description: Sensor für die Anzeige in der App, z. B. sensor.e3_vitocal_ww_speichertemperatur. Leer = keine Anzeige.
+  warmwasser_laeuft:
+    name: Warmwasser lädt gerade
+    description: >-
+      binary_sensor, der an ist, solange aufgeheizt wird, z. B.
+      binary_sensor.e3_vitocal_einmalige_ladung. Verhindert doppeltes Starten.
   log_level:
     name: Protokollstufe
 network:
