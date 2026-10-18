@@ -21,7 +21,7 @@ Supervisor-API einen Dienst fuer die eingestellte Entitaet auf.
 Dazu, fuer die Familie: Wer vom Admin das Recht "Familie" bekommt, sieht
 in der App die Speichertemperatur mit einem Knopf, der z. B. die einmalige
 Ladung der Waermepumpe ausloest, den Staubsauger (starten, zur Station) und
-ein Livebild der Kamera an der Haustuer.
+ein Livebild der Kamera an der Haustuer und den Pollenflug.
 """
 
 import json
@@ -76,6 +76,7 @@ WARMWASSER_SOLL = os.environ.get("WARMWASSER_SOLL", "").strip()
 STAUBSAUGER_ENTITAET = os.environ.get("STAUBSAUGER_ENTITAET", "").strip()
 STAUBSAUGER_BATTERIE = os.environ.get("STAUBSAUGER_BATTERIE", "").strip()
 KAMERA_ENTITAET = os.environ.get("KAMERA_ENTITAET", "").strip()
+POLLEN_PRAEFIX = os.environ.get("POLLEN_PRAEFIX", "").strip()
 WLAN_NAME = os.environ.get("WLAN_NAME", "").strip()
 WLAN_SCHLUESSEL = os.environ.get("WLAN_SCHLUESSEL", "")
 WLAN_VERSCHLUESSELUNG = os.environ.get("WLAN_VERSCHLUESSELUNG", "WPA").strip() or "WPA"
@@ -543,6 +544,7 @@ def api_status():
             warmwasser=ist_familie(b) and bool(WARMWASSER_ENTITAET),
             staubsauger=ist_familie(b) and bool(STAUBSAUGER_ENTITAET),
             kamera=ist_familie(b) and bool(KAMERA_ENTITAET),
+            pollen=ist_familie(b) and bool(POLLEN_PRAEFIX),
             wlan=b["status"] == "aktiv" and bool(WLAN_NAME),
             radius=RADIUS_METER,
         )
@@ -1185,6 +1187,61 @@ def api_kamera(b):
 
 
 # ------------------------------------------------------------------
+# Pollenflug (DWD): aendert sich einmal am Tag
+# ------------------------------------------------------------------
+
+POLLEN_MERKEN_S = 10 * 60
+_pollen = {"t": 0.0, "daten": None}
+_pollen_sperre = threading.Lock()
+# Die Entitaeten heissen z. B. sensor.pollenflug_graeser_121
+POLLEN_NAMEN = {"graeser": "Gräser", "beifuss": "Beifuß"}
+
+
+def pollen_wert(wert):
+    try:
+        return float(wert)
+    except (TypeError, ValueError):
+        return None
+
+
+def pollen_lesen():
+    arten = []
+    stand = None
+    for z in ha_aufruf("GET", "/states") or []:
+        eid = z.get("entity_id", "")
+        if not eid.startswith(POLLEN_PRAEFIX):
+            continue
+        a = z.get("attributes") or {}
+        kurz = re.sub(r"_\d+$", "", eid[len(POLLEN_PRAEFIX):])
+        arten.append({
+            "name": POLLEN_NAMEN.get(kurz, kurz.replace("_", " ").capitalize()),
+            "heute": pollen_wert(z.get("state")),
+            "morgen": pollen_wert(a.get("state_tomorrow")),
+            "uebermorgen": pollen_wert(a.get("state_in_2_days")),
+        })
+        stand = stand or a.get("last_update")
+    # Am staerksten belastete Art zuerst, sonst nach Namen
+    arten.sort(key=lambda p: (-max(v or 0 for v in (p["heute"], p["morgen"], p["uebermorgen"])), p["name"]))
+    return {"stand": stand, "arten": arten}
+
+
+@app.get("/api/pollen")
+@braucht("voll")
+def api_pollen(b):
+    if (f := familie_fehler(b, POLLEN_PRAEFIX)):
+        return f
+    with _pollen_sperre:
+        if _pollen["daten"] is None or time.time() - _pollen["t"] >= POLLEN_MERKEN_S:
+            try:
+                _pollen.update(daten=pollen_lesen(), t=time.time())
+            except Exception as fehl:  # noqa: BLE001
+                log.warning("Pollenflug nicht lesbar: %s", fehl)
+                if _pollen["daten"] is None:
+                    return fehler("Der Pollenflug ist gerade nicht abrufbar.", 502)
+        return jsonify(_pollen["daten"])
+
+
+# ------------------------------------------------------------------
 # Gaeste-WLAN: fuer jeden freigegebenen Zugang
 # ------------------------------------------------------------------
 
@@ -1250,6 +1307,7 @@ def api_admin_uebersicht():
             "staubsauger_typ_ok": not STAUBSAUGER_ENTITAET or STAUBSAUGER_ENTITAET.startswith("vacuum."),
             "staubsauger_batterie": STAUBSAUGER_BATTERIE,
             "kamera_entitaet": KAMERA_ENTITAET,
+            "pollen_praefix": POLLEN_PRAEFIX,
             # Der Schluessel selbst steht nur in den Optionen
             "wlan_name": WLAN_NAME,
         },

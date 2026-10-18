@@ -1,10 +1,10 @@
 name: Türöffner
-version: "0.7.0"
+version: "0.8.0"
 slug: tuer_oeffner
 # Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
 # jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
 image: ghcr.io/gregorwolf1973/{arch}-addon-tuer_oeffner
-description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich. Für die Familie zusätzlich Warmwasser aufheizen, Staubsauger steuern, Livebild der Kamera und Gäste-WLAN per QR-Code
+description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich. Für die Familie zusätzlich Warmwasser aufheizen, Staubsauger steuern, Livebild der Kamera, Pollenflug und Gäste-WLAN per QR-Code
 url: https://github.com/gregorwolf1973/tuer-oeffner-addon
 arch:
   - aarch64
@@ -42,6 +42,7 @@ options:
   staubsauger_entitaet: "vacuum.roborock_s7_maxv_2"
   staubsauger_batterie: "sensor.roborock_s7_maxv_2_batterie"
   kamera_entitaet: "camera.t62_mainstream"
+  pollen_praefix: "sensor.pollenflug_"
   wlan_name: ""
   wlan_schluessel: ""
   wlan_verschluesselung: WPA
@@ -64,6 +65,7 @@ schema:
   staubsauger_entitaet: str?
   staubsauger_batterie: str?
   kamera_entitaet: str?
+  pollen_praefix: str?
   wlan_name: str?
   wlan_schluessel: password?
   wlan_verschluesselung: list(WPA|WEP|offen)

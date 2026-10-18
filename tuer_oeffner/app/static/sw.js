@@ -1,7 +1,7 @@
 /* Service Worker: nur damit die App installierbar ist und die Huelle
    ohne Netz erscheint. Die API wird NIE aus dem Speicher beantwortet -
    ein "Tuer offen" aus dem Cache waere eine Luege. */
-const SPEICHER = "tuer-v7";
+const SPEICHER = "tuer-v8";
 const HUELLE = ["./", "static/app.js", "static/style.css", "static/icon-192.png", "manifest.webmanifest"];
 
 self.addEventListener("install", (ev) => {

@@ -100,6 +100,7 @@ async function laden() {
   $("#staubsauger").hidden = !zustand.staubsauger;
   $("#kamera").hidden = !zustand.kamera;
   $("#wlan").hidden = !zustand.wlan;
+  $("#pollen").hidden = !zustand.pollen;
   familieLaden();
   $("#radius-hinweis").textContent = `Funktioniert bis ${zustand.radius} m von der Haustür – dein Standort wird dafür geprüft.`;
   $("#passkeys-bereich").hidden = !passkey;
@@ -563,11 +564,76 @@ $("#wlan-kopieren").addEventListener("click", async () => {
   }
 });
 
+/* ---------- Pollenflug (DWD-Index 0 bis 3 in halben Stufen) ---------- */
+
+const POLLEN_STUFE = {
+  0: "keine", 0.5: "keine bis gering", 1: "gering", 1.5: "gering bis mittel",
+  2: "mittel", 2.5: "mittel bis hoch", 3: "hoch",
+};
+const pollen = { zuletzt: 0 };
+
+function pollenZelle(wert) {
+  const td = document.createElement("td");
+  const s = document.createElement("span");
+  // Klasse nach ganzer Stufe: 0 keine, 1 gering, 2 mittel, 3 hoch
+  s.className = "pollen-stufe s" + (wert == null ? "x" : Math.ceil(wert));
+  s.textContent = wert == null ? "–" : POLLEN_STUFE[wert] || String(wert);
+  td.append(s);
+  return td;
+}
+
+function pollenZeigen(d) {
+  const tage = (p) => [p.heute, p.morgen, p.uebermorgen];
+  const belastet = d.arten.filter((p) => tage(p).some((v) => v > 0));
+  const ruhig = d.arten.filter((p) => !belastet.includes(p));
+  const stand = d.stand ? new Date(d.stand) : null;
+  $("#pollen-stand").textContent = stand && !isNaN(stand)
+    ? "DWD, " + stand.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" })
+    : "";
+
+  if (!d.arten.length) {
+    $("#pollen-fazit").textContent = "Keine Pollendaten gefunden.";
+  } else if (!belastet.length) {
+    $("#pollen-fazit").textContent = "Heute bis übermorgen keine Belastung. 🌿";
+  } else {
+    const heute = belastet.filter((p) => p.heute > 0).map((p) => p.name);
+    $("#pollen-fazit").textContent = heute.length
+      ? `Heute unterwegs: ${heute.join(", ")}.`
+      : "Heute keine Belastung – in den nächsten Tagen schon:";
+  }
+
+  const tabelle = $("#pollen-belastet");
+  tabelle.hidden = !belastet.length;
+  $("tbody", tabelle).replaceChildren(...belastet.map((p) => {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.scope = "row";
+    th.textContent = p.name;
+    tr.append(th, ...tage(p).map(pollenZelle));
+    return tr;
+  }));
+
+  const weitere = $("#pollen-weitere");
+  weitere.hidden = !belastet.length || !ruhig.length;
+  $("summary", weitere).textContent = `${ruhig.length} weitere ohne Belastung`;
+  $("#pollen-weitere-liste").textContent = ruhig.map((p) => p.name).join(", ");
+}
+
+async function pollenLaden() {
+  // Der DWD rechnet einmal am Tag - alle 10 Minuten nachsehen reicht
+  if (Date.now() - pollen.zuletzt < 10 * 60 * 1000) return;
+  try {
+    pollenZeigen(await api("pollen"));
+    pollen.zuletzt = Date.now();
+  } catch { /* Anzeige bleibt, wie sie war */ }
+}
+
 /* ---------- Familie: Anzeigen aktuell halten ---------- */
 
 function familieLaden() {
   if (!$("#warmwasser").hidden) warmwasserLaden();
   if (!$("#staubsauger").hidden) staubsaugerLaden();
+  if (!$("#pollen").hidden) pollenLaden();
 }
 
 setInterval(() => { if (!document.hidden) familieLaden(); }, 30000);

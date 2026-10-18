@@ -30,6 +30,7 @@ os.environ.update(
     STAUBSAUGER_ENTITAET="vacuum.sauger",
     STAUBSAUGER_BATTERIE="sensor.sauger_akku",
     KAMERA_ENTITAET="camera.haustuer",
+    POLLEN_PRAEFIX="sensor.pollenflug_",
     WLAN_NAME="Gast",
     WLAN_SCHLUESSEL="geheim;123",
 )
@@ -46,6 +47,8 @@ def ha(monkeypatch):
         aufrufe.append((methode, pfad, daten))
         if pfad == "/config":
             return {"latitude": HEIM[0], "longitude": HEIM[1]}
+        if pfad == "/states":
+            return [{"entity_id": k} | v for k, v in ZUSTAENDE.items()]
         if pfad.startswith("/states/"):
             return ZUSTAENDE.get(pfad.removeprefix("/states/"))
         return []
@@ -77,6 +80,7 @@ def sauber():
     })
     server._zuletzt_gesaugt["t"] = 0.0
     server._kamera.update(t=0.0, bild=None)
+    server._pollen.update(t=0.0, daten=None)
     yield
 
 
@@ -762,6 +766,44 @@ def test_wlan_offen_und_aus(client, ha, monkeypatch):
     monkeypatch.setattr(server, "WLAN_NAME", "")
     assert client.get("/api/status").json["wlan"] is False
     assert client.get("/api/wlan").status_code == 404
+
+
+# ------------------------------------------------------------------
+# Pollenflug
+
+
+def pollen(art, heute, morgen, uebermorgen):
+    ZUSTAENDE[f"sensor.pollenflug_{art}_121"] = {"state": str(heute), "attributes": {
+        "state_tomorrow": morgen, "state_in_2_days": uebermorgen, "last_update": "2026-10-18T11:00:00+02:00"}}
+
+
+def test_pollen_nur_familie(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org")
+    assert client.get("/api/status").json["pollen"] is False
+    assert client.get("/api/pollen").status_code == 403
+
+
+def test_pollen_sortiert_und_benannt(client, ha):
+    pollen("birke", 0, 0, 0)
+    pollen("graeser", 1, 1.5, 2)
+    pollen("beifuss", 0, 0, 3)
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    d = client.get("/api/pollen").json
+    assert d["stand"] == "2026-10-18T11:00:00+02:00"
+    # Staerkste Belastung zuerst, Umlaute im Namen
+    assert [p["name"] for p in d["arten"]] == ["Beifuß", "Gräser", "Birke"]
+    assert d["arten"][1] == {"name": "Gräser", "heute": 1.0, "morgen": 1.5, "uebermorgen": 2.0}
+
+
+def test_pollen_wird_gemerkt(client, ha):
+    pollen("hasel", 0, 0, 0)
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    client.get("/api/pollen")
+    client.get("/api/pollen")
+    assert sum(1 for _, p, _ in ha if p == "/states") == 1
 
 
 def test_sicherheitskoepfe(client, ha):

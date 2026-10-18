@@ -102,7 +102,7 @@ function zugangKarte(b, familieAn) {
     () => aktion(b, b.fern ? "fern_aus" : "fern_an", b.fern ? null : `${b.name} darf dann von überall öffnen. Sicher?`),
     offen));
   if (familieAn) {
-    rechte.append(recht("Familie", "Warmwasser, Staubsauger, Kamera", b.familie,
+    rechte.append(recht("Familie", "Warmwasser, Staubsauger, Kamera, Pollen", b.familie,
       () => aktion(b, b.familie ? "familie_aus" : "familie_an"), b.status !== "gesperrt"));
   }
   karte.append(rechte);
@@ -228,7 +228,8 @@ async function laden() {
   }
   zeilen.push(["Staubsauger", e.staubsauger_entitaet || "aus"]);
   if (e.staubsauger_entitaet) zeilen.push(["Staubsauger-Akku", e.staubsauger_batterie || "–"]);
-  zeilen.push(["Kamera (Familie)", e.kamera_entitaet || "aus"], ["Gäste-WLAN", e.wlan_name || "aus"]);
+  zeilen.push(["Kamera (Familie)", e.kamera_entitaet || "aus"],
+    ["Pollenflug (Familie)", e.pollen_praefix ? e.pollen_praefix + "…" : "aus"], ["Gäste-WLAN", e.wlan_name || "aus"]);
   $("#einstellungen").replaceChildren(...zeilen.flatMap(([k, v]) => [el("dt", k), el("dd", v)]));
 }
 

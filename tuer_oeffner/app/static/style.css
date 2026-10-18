@@ -175,6 +175,33 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 }
 .kamera-live { font-size: .8rem; font-weight: 600; color: var(--schlecht); letter-spacing: .03em; }
 
+/* ---------- Pollenflug ---------- */
+
+.pollen-stand { font-size: .8rem; }
+.pollen-fazit { margin: 6px 0 10px; }
+.pollen-tabelle { width: 100%; border-collapse: collapse; font-size: .85rem; table-layout: fixed; }
+.pollen-tabelle th, .pollen-tabelle td { padding: 5px 3px; text-align: center; vertical-align: middle; }
+.pollen-tabelle thead th { color: var(--leise); font-weight: 600; font-size: .78rem; }
+.pollen-tabelle tbody th { text-align: left; font-weight: 600; width: 26%; }
+.pollen-stufe {
+  display: block; border-radius: 8px; padding: 4px 2px; line-height: 1.2; font-size: .76rem; hyphens: auto;
+}
+.pollen-stufe.s0, .pollen-stufe.sx { color: var(--leise); }
+.pollen-stufe.s1 { background: #dcfce7; color: #166534; }
+.pollen-stufe.s2 { background: #fef3c7; color: #92400e; }
+.pollen-stufe.s3 { background: #fee2e2; color: #991b1b; }
+:root[data-theme="dunkel"] .pollen-stufe.s1 { background: #14361f; color: #86efac; }
+:root[data-theme="dunkel"] .pollen-stufe.s2 { background: #3b2c0b; color: #fcd34d; }
+:root[data-theme="dunkel"] .pollen-stufe.s3 { background: #3f1515; color: #fca5a5; }
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] .pollen-stufe.s1 { background: #14361f; color: #86efac; }
+  :root[data-theme="auto"] .pollen-stufe.s2 { background: #3b2c0b; color: #fcd34d; }
+  :root[data-theme="auto"] .pollen-stufe.s3 { background: #3f1515; color: #fca5a5; }
+}
+.pollen-weitere { margin-top: 8px; font-size: .88rem; }
+.pollen-weitere summary { cursor: pointer; color: var(--leise); }
+.pollen-weitere p { margin: 4px 0 0; }
+
 /* ---------- Gaeste-WLAN ---------- */
 
 .knopf.haupt.wlan-knopf { margin-top: 12px; min-height: 52px; }

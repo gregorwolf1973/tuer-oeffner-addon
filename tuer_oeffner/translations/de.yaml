@@ -79,6 +79,12 @@ configuration:
       Livebild in der Haustür-Karte, nur für Zugänge der Familie, z. B.
       camera.t62_mainstream. Abgefragt wird nur, solange die App offen und das
       Bild zu sehen ist. Leer = kein Livebild.
+  pollen_praefix:
+    name: Pollenflug
+    description: >-
+      Anfang der Entitäts-IDs der DWD-Pollenflug-Integration, z. B.
+      sensor.pollenflug_ – alle passenden Sensoren erscheinen in der App
+      (nur Familie). Leer = keine Pollen-Karte.
   wlan_name:
     name: Gäste-WLAN – Name (SSID)
     description: >-

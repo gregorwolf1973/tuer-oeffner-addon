@@ -31,6 +31,8 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   - **Kamera:** ein Livebild in der Haustür-Karte, etwa ein Bild pro
     Sekunde. Abgefragt wird nur, solange die App im Vordergrund und das Bild
     auf dem Bildschirm zu sehen ist.
+  - **Pollenflug** vom DWD für heute, morgen und übermorgen: belastete
+    Arten mit Farbstufe (gering – mittel – hoch), der Rest eingeklappt.
 
   Beides geht von überall, ohne Standortprüfung.
 - **Gäste-WLAN:** Jeder freigegebene Zugang – auch Freunde – hat in der App
@@ -89,6 +91,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `staubsauger_entitaet` | der Saugroboter (`vacuum.…`), leer = keine Staubsauger-Karte |
 | `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
 | `kamera_entitaet` | Kamera für das Livebild (nur Familie), leer = kein Livebild |
+| `pollen_praefix` | Anfang der IDs der DWD-Pollenflug-Sensoren (`sensor.pollenflug_`), leer = keine Pollen-Karte |
 | `wlan_name`, `wlan_schluessel`, `wlan_verschluesselung` | Gäste-WLAN für den QR-Code-Knopf; ohne Name kein Knopf. `WPA` gilt auch für WPA2/WPA3 |
 
 ## Sicherheit

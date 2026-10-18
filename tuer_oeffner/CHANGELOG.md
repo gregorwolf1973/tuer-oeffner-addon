@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.8.0
+
+- Pollenflug für die Familie: Karte mit der DWD-Vorhersage für heute,
+  morgen und übermorgen. Belastete Arten stehen mit Farbstufe oben, die
+  übrigen eingeklappt. Neue Option `pollen_praefix`, voreingestellt die
+  DWD-Pollenflug-Integration.
+
 ## 0.7.0
 
 - Warmwasser ehrlicher: „Heizt gerade“ nur, wenn der Kompressor läuft,

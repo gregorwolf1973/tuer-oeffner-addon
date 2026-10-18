@@ -133,6 +133,22 @@
         </div>
       </section>
 
+      <section id="pollen" class="karte" aria-labelledby="pollen-titel" hidden>
+        <div class="karte-kopf">
+          <h2 id="pollen-titel">Pollenflug</h2>
+          <span id="pollen-stand" class="leise pollen-stand"></span>
+        </div>
+        <p id="pollen-fazit" class="pollen-fazit"></p>
+        <table class="pollen-tabelle" id="pollen-belastet" hidden>
+          <thead><tr><th scope="col"></th><th scope="col">Heute</th><th scope="col">Morgen</th><th scope="col">Übermorgen</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <details id="pollen-weitere" class="pollen-weitere" hidden>
+          <summary></summary>
+          <p class="leise" id="pollen-weitere-liste"></p>
+        </details>
+      </section>
+
       <section id="wlan" class="karte" aria-labelledby="wlan-titel" hidden>
         <div class="karte-kopf"><h2 id="wlan-titel">Gäste-WLAN</h2></div>
         <button type="button" id="wlan-zeigen" class="knopf haupt wlan-knopf" aria-expanded="false">WLAN-QR-Code zeigen</button>
