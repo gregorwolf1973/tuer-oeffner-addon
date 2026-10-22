@@ -23,9 +23,10 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   hinzufügst, sehen in der App zusätzlich
   - **Warmwasser:** die Speichertemperatur und einen Knopf „Wasser
     aufheizen“. Er startet die einmalige Ladung der Wärmepumpe. „Heizt
-    gerade“ steht nur da, wenn der Kompressor wirklich läuft. Ist das Wasser
-    schon wärmer als die Zieltemperatur, sagt die App das, statt eine
-    wirkungslose Ladung anzustoßen.
+    gerade“ steht nur da, wenn der Kompressor wirklich läuft. Vor der Ladung
+    stellt der Knopf die Wärmepumpe auf die **Vorgabe** aus der Verwaltung
+    (anfangs 50 °C) – nur dann, nie sonst. Ist das Wasser schon wärmer als
+    die Vorgabe, sagt die App das, statt eine wirkungslose Ladung anzustoßen.
   - **Staubsauger:** Status und Akku, dazu „Saugen starten“ und „Zur
     Station“.
   - **Kamera:** ein Livebild in der Haustür-Karte, etwa ein Bild pro
@@ -56,7 +57,8 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   Registrierung.
 - **Verwaltung** nur hier in Home Assistant (Seitenleiste „Türöffner“):
   jeder Zugang als Karte mit Schaltern für „Aus der Ferne“ und „Familie“,
-  dazu die **Warmwasser-Zieltemperatur** zum Einstellen. Außerdem:
+  dazu die **Warmwasser-Vorgabe** (Zieltemperatur beim Aufheizen) zum
+  Einstellen. Außerdem:
   freigeben, Fern-Recht, Familie, sperren, 2FA zurücksetzen, löschen, Protokoll und
   ein Knopf zum Testen. Aus dem Internet ist die Verwaltung nicht
   erreichbar.
@@ -101,7 +103,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `warmwasser_temperatur` | Sensor für die Temperaturanzeige in der App, leer = keine Anzeige |
 | `warmwasser_laeuft` | binary_sensor, der an ist, solange aufgeheizt wird – verhindert doppeltes Starten |
 | `warmwasser_heizt` | binary_sensor für den Kompressor – nur dann zeigt die App „heizt gerade“ |
-| `warmwasser_soll` | number-Entität der Zieltemperatur – Anzeige in der App, einstellbar in der Verwaltung |
+| `warmwasser_soll` | number-Entität der Zieltemperatur – der Knopf stellt sie beim Aufheizen auf die Vorgabe aus der Verwaltung |
 | `staubsauger_entitaet` | der Saugroboter (`vacuum.…`), leer = keine Staubsauger-Karte |
 | `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
 | `kamera_entitaet` | Kamera für das Livebild (nur Familie), leer = kein Livebild |

@@ -63,7 +63,8 @@ ZUSTAENDE = {}
 @pytest.fixture(autouse=True)
 def sauber():
     conn = server.verbinden()
-    conn.executescript("DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;")
+    conn.executescript("DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;"
+                       " DELETE FROM einstellungen;")
     conn.commit()
     conn.close()
     server._ip_fehler.clear()
@@ -523,13 +524,16 @@ def test_warmwasser_anzeige_und_aufheizen(client, ha):
         "temperatur": 41.2, "einheit": "°C", "laeuft": False, "heizt": False, "soll": 50.0}
     r = post(client, "/api/warmwasser/aufheizen")
     assert r.status_code == 200, r.json
+    assert r.json["ziel"] == 50.0
     assert len(aufgeheizt(ha)) == 1
+    # Die Waermepumpe stand schon auf der Vorgabe: kein unnoetiger Aufruf an ViCare
+    assert not ziel_gesetzt(ha)
     # Gleich noch einmal: gebremst
     assert post(client, "/api/warmwasser/aufheizen").status_code == 429
     assert len(aufgeheizt(ha)) == 1
     admin = server.app.test_client()
     p = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["protokoll"]
-    assert p[0]["aktion"] == "warmwasser" and p[0]["name"] == "Anna"
+    assert p[0]["aktion"] == "warmwasser" and p[0]["name"] == "Anna" and p[0]["detail"] == "auf 50 °C"
 
 
 def test_warmwasser_laeuft_schon(client, ha):
@@ -557,22 +561,82 @@ def test_warmwasser_schon_warm_genug(client, ha):
     ZUSTAENDE["sensor.ww_temperatur"]["state"] = "51.2"
     r = post(client, "/api/warmwasser/aufheizen")
     assert r.status_code == 409 and "51,2 °C" in r.json["fehler"] and "50 °C" in r.json["fehler"]
+    assert not aufgeheizt(ha) and not ziel_gesetzt(ha)
+
+
+def ziel_gesetzt(ha):
+    return [d["value"] for _, p, d in ha if p == "/services/number/set_value" and d["entity_id"] == "number.ww_ziel"]
+
+
+def test_vorgabe_statt_eingestelltem_ziel(client, ha):
+    """Massgeblich ist die Vorgabe, nicht was gerade in der Waermepumpe steht:
+    45 °C eingestellt, 47 °C im Speicher - der Knopf heizt trotzdem auf 50 °C."""
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    ZUSTAENDE["number.ww_ziel"]["state"] = "45"
+    ZUSTAENDE["sensor.ww_temperatur"]["state"] = "47"
+    assert client.get("/api/warmwasser").json["soll"] == 50.0
+    # Nur anzeigen setzt nichts
+    assert not ziel_gesetzt(ha)
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 200
+    assert ziel_gesetzt(ha) == [50.0]
+    # Erst das Ziel, dann die Ladung
+    reihenfolge = [p for _, p, _ in ha if p in ("/services/number/set_value", "/services/button/press")]
+    assert reihenfolge == ["/services/number/set_value", "/services/button/press"]
+    admin = server.app.test_client()
+    p = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["protokoll"]
+    assert p[0]["detail"] == "auf 50 °C (Ziel vorher 45 °C)"
+
+
+def test_ziel_nicht_setzbar_heizt_nicht(client, ha, monkeypatch):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    ZUSTAENDE["number.ww_ziel"]["state"] = "45"
+    nachgebildet = server.ha_aufruf
+
+    def scheitert(methode, pfad, daten=None):
+        if pfad == "/services/number/set_value":
+            raise RuntimeError("ViCare nicht erreichbar")
+        return nachgebildet(methode, pfad, daten)
+
+    monkeypatch.setattr(server, "ha_aufruf", scheitert)
+    r = post(client, "/api/warmwasser/aufheizen")
+    assert r.status_code == 502 and "Zieltemperatur" in r.json["fehler"]
     assert not aufgeheizt(ha)
 
 
-def test_admin_warmwasser_ziel(client, ha):
+def test_admin_warmwasser_vorgabe(client, ha):
     admin = server.app.test_client()
+    ZUSTAENDE["number.ww_ziel"]["state"] = "45"
     d = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["warmwasser"]
-    assert d == {"ziel": 50.0, "min": 10, "max": 60, "schritt": 1, "temperatur": 41.2, "laeuft": False}
-    r = post(admin, "/api/admin/warmwasser/ziel", {"wert": 55}, environ_base=INGRESS)
+    assert d == {"vorgabe": 50.0, "eingestellt": 45.0, "min": 10, "max": 60, "schritt": 1, "temperatur": 41.2,
+                 "laeuft": False}
+    r = post(admin, "/api/admin/warmwasser/vorgabe", {"wert": 55}, environ_base=INGRESS)
     assert r.status_code == 200
-    assert ("POST", "/services/number/set_value", {"entity_id": "number.ww_ziel", "value": 55.0}) in ha
-    assert post(admin, "/api/admin/warmwasser/ziel", {"wert": 75}, environ_base=INGRESS).status_code == 400
-    assert post(admin, "/api/admin/warmwasser/ziel", {"wert": "heiss"}, environ_base=INGRESS).status_code == 400
+    # Die Vorgabe wird nur gespeichert - die Waermepumpe bleibt unberuehrt
+    assert not ziel_gesetzt(ha)
+    d = admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["warmwasser"]
+    assert d["vorgabe"] == 55.0 and d["eingestellt"] == 45.0
+    assert admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["protokoll"][0]["detail"] == "50 °C → 55 °C"
+    assert post(admin, "/api/admin/warmwasser/vorgabe", {"wert": 75}, environ_base=INGRESS).status_code == 400
+    assert post(admin, "/api/admin/warmwasser/vorgabe", {"wert": "heiss"}, environ_base=INGRESS).status_code == 400
+    # Das alte Setzen direkt an der Waermepumpe gibt es nicht mehr
+    assert post(admin, "/api/admin/warmwasser/ziel", {"wert": 55}, environ_base=INGRESS).status_code in (404, 405)
     # Nicht aus der App heraus
     registrieren(client)
     freigeben("anna@example.org", familie=True)
-    assert post(client, "/api/admin/warmwasser/ziel", {"wert": 55}).status_code == 404
+    assert post(client, "/api/admin/warmwasser/vorgabe", {"wert": 55}).status_code == 404
+    # Beim Aufheizen gilt die neue Vorgabe
+    assert client.get("/api/warmwasser").json["soll"] == 55.0
+    assert post(client, "/api/warmwasser/aufheizen").status_code == 200
+    assert ziel_gesetzt(ha) == [55.0]
+
+
+def test_vorgabe_bleibt_in_den_grenzen_der_waermepumpe(client, ha):
+    registrieren(client)
+    freigeben("anna@example.org", familie=True)
+    ZUSTAENDE["number.ww_ziel"]["attributes"]["max"] = 48
+    assert client.get("/api/warmwasser").json["soll"] == 48
 
 
 def test_warmwasser_sensor_nicht_verfuegbar(client, ha):

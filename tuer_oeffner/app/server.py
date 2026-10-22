@@ -99,6 +99,9 @@ ABKLINGZEIT_S = 8
 # Die Waermepumpe braucht einen Moment, bis die Ladung als "laeuft" sichtbar
 # ist - so loest ein ungeduldiges Doppeltippen nicht zweimal aus
 WARMWASSER_ABKLINGZEIT_S = 60
+# Zieltemperatur, auf die der Knopf aufheizt, solange in der Verwaltung
+# nichts anderes eingestellt ist
+WARMWASSER_VORGABE_STANDARD = 50.0
 STAUBSAUGER_ABKLINGZEIT_S = 5
 # So lange gilt ein Kamerabild fuer alle - mehrere offene Apps fragen die
 # Kamera damit trotzdem nur etwa einmal pro Sekunde
@@ -206,6 +209,11 @@ CREATE TABLE IF NOT EXISTS protokoll (
     ip TEXT
 );
 CREATE INDEX IF NOT EXISTS protokoll_zeit ON protokoll(zeit);
+-- Einstellungen aus der Verwaltung, z. B. die Warmwasser-Vorgabe
+CREATE TABLE IF NOT EXISTS einstellungen (
+    schluessel TEXT PRIMARY KEY,
+    wert TEXT NOT NULL
+);
 -- Letzter freigegebener Standort je Familienmitglied
 CREATE TABLE IF NOT EXISTS standorte (
     benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
@@ -271,6 +279,17 @@ def db_einrichten():
 
 
 db_einrichten()
+
+
+def einstellung_lesen(schluessel, standard=None):
+    r = db().execute("SELECT wert FROM einstellungen WHERE schluessel = ?", (schluessel,)).fetchone()
+    return r["wert"] if r else standard
+
+
+def einstellung_setzen(schluessel, wert):
+    db().execute("INSERT INTO einstellungen (schluessel, wert) VALUES (?, ?)"
+                 " ON CONFLICT(schluessel) DO UPDATE SET wert = excluded.wert", (schluessel, str(wert)))
+    db().commit()
 
 
 def protokollieren(aktion, benutzer=None, detail="", name=None):
@@ -1084,6 +1103,37 @@ def grad(wert):
     return f"{wert:g} °C".replace(".", ",")
 
 
+def soll_grenzen(z):
+    """Erlaubter Bereich der Zieltemperatur laut number-Entitaet."""
+    a = (z or {}).get("attributes") or {}
+    return a.get("min", 30), a.get("max", 60), a.get("step", 1)
+
+
+def warmwasser_vorgabe(z_soll=None):
+    """Zieltemperatur, auf die der Knopf aufheizt. Sie steht in der
+    Verwaltung und geht erst beim Aufheizen an die Waermepumpe - nie vorher.
+    Ohne number-Entitaet gibt es keine."""
+    if not WARMWASSER_SOLL:
+        return None
+    try:
+        wert = float(einstellung_lesen("warmwasser_vorgabe", WARMWASSER_VORGABE_STANDARD))
+    except ValueError:
+        wert = WARMWASSER_VORGABE_STANDARD
+    unten, oben, _ = soll_grenzen(z_soll)
+    return min(max(wert, unten), oben)
+
+
+def warmwasser_ziel_setzen(wert):
+    """Stellt die Waermepumpe auf die Vorgabe - nur aus dem Knopf heraus.
+    Gibt (vorher, geaendert) zurueck. Steht sie schon richtig, unterbleibt der
+    Aufruf: er geht ueber die ViCare-Cloud, die Aufrufe je Tag begrenzt."""
+    vorher = zahl_lesen(WARMWASSER_SOLL)
+    if vorher == wert:
+        return vorher, False
+    ha_aufruf("POST", "/services/number/set_value", {"entity_id": WARMWASSER_SOLL, "value": wert})
+    return vorher, True
+
+
 def warmwasser_zustand():
     temperatur = einheit = None
     z = zustand_lesen(WARMWASSER_TEMPERATUR)
@@ -1102,7 +1152,8 @@ def warmwasser_zustand():
         heizt = an_aus_lesen(WARMWASSER_HEIZT)
     return {
         "temperatur": temperatur, "einheit": einheit, "laeuft": laeuft, "heizt": heizt,
-        "soll": zahl_lesen(WARMWASSER_SOLL) if WARMWASSER_SOLL else None,
+        # Das Ziel des Knopfs, nicht was gerade in der Waermepumpe steht
+        "soll": warmwasser_vorgabe(zustand_lesen(WARMWASSER_SOLL)) if WARMWASSER_SOLL else None,
     }
 
 
@@ -1125,10 +1176,23 @@ def api_warmwasser_aufheizen(b):
         z = warmwasser_zustand()
         if z["laeuft"]:
             return fehler("Das Aufheizen ist schon angefordert.", 409)
-        # Eine Ladung ueber dem Sollwert bewirkt nichts - lieber gleich sagen
+        # Eine Ladung ueber dem Ziel bewirkt nichts - lieber gleich sagen
         if z["temperatur"] is not None and z["soll"] is not None and z["temperatur"] >= z["soll"]:
-            return fehler(f"Das Wasser hat schon {grad(z['temperatur'])} – mehr als die eingestellten "
+            return fehler(f"Das Wasser hat schon {grad(z['temperatur'])} – mehr als die vorgegebenen "
                           f"{grad(z['soll'])}. Aufheizen bringt gerade nichts.", 409)
+        detail = ""
+        if z["soll"] is not None:
+            # Erst die Vorgabe setzen, dann laden - sonst heizt die Ladung auf
+            # das, was zufaellig gerade eingestellt ist
+            try:
+                vorher, geaendert = warmwasser_ziel_setzen(z["soll"])
+            except Exception as fehl:  # noqa: BLE001
+                log.error("Warmwasser-Ziel nicht gesetzt: %s", fehl)
+                protokollieren("fehler", b, f"Warmwasser-Ziel: {fehl}")
+                return fehler("Die Zieltemperatur ließ sich nicht setzen. Bitte Bescheid geben.", 502)
+            detail = f"auf {grad(z['soll'])}"
+            if geaendert:
+                detail += f" (Ziel vorher {grad(vorher) if vorher is not None else 'unbekannt'})"
         try:
             ausloesen(WARMWASSER_ENTITAET)
         except Exception as fehl:  # noqa: BLE001
@@ -1136,9 +1200,9 @@ def api_warmwasser_aufheizen(b):
             protokollieren("fehler", b, f"Warmwasser: {fehl}")
             return fehler("Das Aufheizen ließ sich nicht starten. Bitte Bescheid geben.", 502)
         _zuletzt_aufgeheizt["t"] = time.time()
-    protokollieren("warmwasser", b)
-    log.info("Warmwasser aufgeheizt von %s", b["name"])
-    return jsonify({"ok": True})
+    protokollieren("warmwasser", b, detail)
+    log.info("Warmwasser aufgeheizt von %s %s", b["name"], detail)
+    return jsonify({"ok": True, "ziel": z["soll"]})
 
 
 _staubsauger_sperre = threading.Lock()
@@ -1556,27 +1620,29 @@ def api_admin_benutzer(bid, aktion):
 
 
 def warmwasser_ziel_daten():
-    """Fuer die Verwaltung: Speichertemperatur und die einstellbare
-    Zieltemperatur mit ihren Grenzen aus der number-Entitaet."""
+    """Fuer die Verwaltung: Speichertemperatur, die Vorgabe fuers Aufheizen
+    mit ihren Grenzen und was gerade in der Waermepumpe eingestellt ist."""
     if not WARMWASSER_SOLL:
         return None
     z = zustand_lesen(WARMWASSER_SOLL) or {}
-    a = z.get("attributes") or {}
     try:
-        ziel = float(z.get("state"))
+        eingestellt = float(z.get("state"))
     except (TypeError, ValueError):
-        ziel = None
+        eingestellt = None
+    unten, oben, schritt = soll_grenzen(z)
     return {
-        "ziel": ziel,
-        "min": a.get("min", 30), "max": a.get("max", 60), "schritt": a.get("step", 1),
+        "vorgabe": warmwasser_vorgabe(z), "eingestellt": eingestellt,
+        "min": unten, "max": oben, "schritt": schritt,
         "temperatur": zahl_lesen(WARMWASSER_TEMPERATUR) if WARMWASSER_TEMPERATUR else None,
         "laeuft": an_aus_lesen(WARMWASSER_LAEUFT) if WARMWASSER_LAEUFT else None,
     }
 
 
-@app.post("/api/admin/warmwasser/ziel")
+@app.post("/api/admin/warmwasser/vorgabe")
 @nur_ingress
-def api_admin_warmwasser_ziel():
+def api_admin_warmwasser_vorgabe():
+    """Speichert nur die Vorgabe. An die Waermepumpe geht sie erst, wenn
+    jemand in der App aufheizt."""
     daten = warmwasser_ziel_daten()
     if not daten:
         return fehler("Keine Entität für die Zieltemperatur eingestellt.", 404)
@@ -1586,13 +1652,8 @@ def api_admin_warmwasser_ziel():
         return fehler("Bitte eine Zahl angeben.")
     if not daten["min"] <= wert <= daten["max"]:
         return fehler(f"Erlaubt sind {grad(daten['min'])} bis {grad(daten['max'])}.")
-    try:
-        ha_aufruf("POST", "/services/number/set_value", {"entity_id": WARMWASSER_SOLL, "value": wert})
-    except Exception as fehl:  # noqa: BLE001
-        log.error("Zieltemperatur nicht gesetzt: %s", fehl)
-        return fehler("Die Wärmepumpe hat die Temperatur nicht übernommen.", 502)
-    protokollieren("admin_warmwasser_ziel", None, f"{grad(daten['ziel']) if daten['ziel'] is not None else '?'}"
-                   f" → {grad(wert)}", name="Admin")
+    einstellung_setzen("warmwasser_vorgabe", wert)
+    protokollieren("admin_warmwasser_vorgabe", None, f"{grad(daten['vorgabe'])} → {grad(wert)}", name="Admin")
     return jsonify({"ok": True})
 
 

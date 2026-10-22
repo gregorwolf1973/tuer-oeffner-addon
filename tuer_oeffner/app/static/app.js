@@ -406,7 +406,8 @@ function warmwasserZeigen(d) {
     ? "–"
     : `${String(d.temperatur).replace(".", ",")} ${d.einheit}`;
   const knopf = $("#ww-aufheizen");
-  // Ueber dem Sollwert bewirkt eine Ladung nichts - das sagen wir ehrlich
+  // Ueber dem Ziel bewirkt eine Ladung nichts - das sagen wir ehrlich. Das
+  // Ziel ist die Vorgabe, auf die der Knopf die Waermepumpe stellt.
   const warmGenug = d.temperatur != null && d.soll != null && d.temperatur >= d.soll;
   const ziel = d.soll == null ? "" : ` · Ziel ${String(d.soll).replace(".", ",")} °C`;
   knopf.disabled = wwStartet || d.laeuft === true || warmGenug;
@@ -440,9 +441,11 @@ $("#ww-aufheizen").addEventListener("click", async () => {
   knopf.disabled = true;
   knopf.textContent = "Starte …";
   try {
-    await ausfuehren(() => api("warmwasser/aufheizen", {}));
+    const antwort = await ausfuehren(() => api("warmwasser/aufheizen", {}));
     if (navigator.vibrate) navigator.vibrate(80);
-    melde("Aufheizen angefordert.", "ok");
+    melde(antwort && antwort.ziel != null
+      ? `Aufheizen auf ${String(antwort.ziel).replace(".", ",")} °C angefordert.`
+      : "Aufheizen angefordert.", "ok");
     knopf.textContent = "Aufheizen angefordert";
     $("#ww-status").textContent = "Angefordert. Die Wärmepumpe meldet sich gleich.";
     // Die Waermepumpe meldet die Ladung erst nach einer Weile

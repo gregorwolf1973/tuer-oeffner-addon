@@ -63,8 +63,8 @@ configuration:
     name: Warmwasser-Zieltemperatur
     description: >-
       number-Entität mit der Solltemperatur, z. B.
-      number.e3_vitocal_ww_temperatur. Wird in der App angezeigt und ist in
-      der Verwaltung einstellbar.
+      number.e3_vitocal_ww_temperatur. Beim Drücken von „Wasser aufheizen“
+      wird sie auf die Vorgabe aus der Verwaltung gestellt (anfangs 50 °C).
   staubsauger_entitaet:
     name: Staubsauger
     description: >-

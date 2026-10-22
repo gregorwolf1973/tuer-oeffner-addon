@@ -46,6 +46,7 @@ const AKTION_TEXT = {
   admin_familie_an: "zur Familie hinzugefügt", admin_familie_aus: "aus der Familie entfernt",
   admin_2fa_zuruecksetzen: "2FA zurückgesetzt", admin_loeschen: "gelöscht",
   admin_warmwasser_ziel: "Warmwasser-Ziel geändert",
+  admin_warmwasser_vorgabe: "Warmwasser-Vorgabe geändert",
   standort_an: "Standort-Freigabe an", standort_aus: "Standort-Freigabe aus",
   owntracks_eingerichtet: "OwnTracks eingerichtet", owntracks_getrennt: "OwnTracks getrennt",
 };
@@ -126,7 +127,7 @@ function zugangKarte(b, familieAn) {
   return karte;
 }
 
-/* ---------- Warmwasser-Zieltemperatur ---------- */
+/* ---------- Warmwasser-Vorgabe fuers Aufheizen ---------- */
 
 const ww = { daten: null, wert: null, geaendert: false };
 const gradText = (w) => (w == null ? "–" : `${String(w).replace(".", ",")} °C`);
@@ -136,9 +137,10 @@ function warmwasserZeigen(d) {
   if (!d) return;
   ww.daten = d;
   $("#ww-v-temperatur").textContent = gradText(d.temperatur);
-  $("#ww-v-status").textContent = d.laeuft ? "Im Speicher · Aufheizen ist angefordert" : "Im Speicher";
+  const eingestellt = d.eingestellt == null ? "" : ` · Wärmepumpe steht auf ${gradText(d.eingestellt)}`;
+  $("#ww-v-status").textContent = "Im Speicher" + eingestellt + (d.laeuft ? " · Aufheizen ist angefordert" : "");
   // Was gerade eingestellt wird, nicht beim Auffrischen ueberschreiben
-  if (!ww.geaendert) ww.wert = d.ziel;
+  if (!ww.geaendert) ww.wert = d.vorgabe;
   zielAnzeigen();
 }
 
@@ -148,13 +150,13 @@ function zielAnzeigen() {
   $('[data-schritt="-1"]').disabled = ww.wert == null || ww.wert - d.schritt < d.min;
   $('[data-schritt="1"]').disabled = ww.wert == null || ww.wert + d.schritt > d.max;
   $("#ww-ziel-speichern").disabled = !ww.geaendert;
-  $("#ww-ziel-speichern").textContent = ww.geaendert ? `Auf ${gradText(ww.wert)} stellen` : "Übernehmen";
+  $("#ww-ziel-speichern").textContent = ww.geaendert ? `${gradText(ww.wert)} vorgeben` : "Übernehmen";
 }
 
 document.querySelectorAll("[data-schritt]").forEach((k) => k.addEventListener("click", () => {
   const d = ww.daten;
   ww.wert = Math.round((ww.wert + Number(k.dataset.schritt) * d.schritt) * 10) / 10;
-  ww.geaendert = ww.wert !== d.ziel;
+  ww.geaendert = ww.wert !== d.vorgabe;
   zielAnzeigen();
 }));
 
@@ -162,9 +164,9 @@ $("#ww-ziel-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("#ww-ziel-speichern").disabled = true;
   try {
-    await api("admin/warmwasser/ziel", { wert: ww.wert });
+    await api("admin/warmwasser/vorgabe", { wert: ww.wert });
     ww.geaendert = false;
-    melde(`Warmwasser-Ziel ist jetzt ${gradText(ww.wert)}. Die Wärmepumpe übernimmt es in ein bis zwei Minuten.`, "ok");
+    melde(`Vorgabe ist jetzt ${gradText(ww.wert)}. Die Wärmepumpe wird beim nächsten Aufheizen darauf gestellt.`, "ok");
   } catch (e) {
     melde(e.message);
   }

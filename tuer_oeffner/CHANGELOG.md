@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.11.0
+
+- Warmwasser: Die Zieltemperatur kommt nicht mehr aus Home Assistant, sondern
+  ist eine **Vorgabe** in der Verwaltung (anfangs 50 °C). Erst wenn jemand in
+  der App „Wasser aufheizen“ drückt, wird die Wärmepumpe auf die Vorgabe
+  gestellt und danach die einmalige Ladung gestartet – sonst nie. Steht sie
+  schon darauf, unterbleibt der Aufruf (ViCare begrenzt die Aufrufe je Tag).
+- Lässt sich die Zieltemperatur nicht setzen, startet keine Ladung, und die
+  App meldet den Fehler.
+- „Schon warm genug“ und das Ziel in der App beziehen sich auf die Vorgabe.
+- Verwaltung: Der Regler stellt die Vorgabe ein und zeigt daneben, worauf die
+  Wärmepumpe gerade steht. Das Protokoll nennt beim Aufheizen das Ziel und,
+  falls geändert, den Wert davor.
+
 ## 0.10.0
 
 - Standort im Hintergrund mit **OwnTracks**: „OwnTracks einrichten“ erzeugt
