@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.12.2
+
+- Verwaltung: Personen, Aufgaben und Pausen überlappen sich nicht mehr.
+  Personen und Aufgaben stehen nebeneinander, die Pausen darunter.
+
 ## 0.12.1
 
 - Hausdienst: **Personen** legst du jetzt selbst an, auch ohne Zugang zum
