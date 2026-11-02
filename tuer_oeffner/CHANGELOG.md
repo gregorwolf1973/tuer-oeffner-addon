@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.13.1
+
+- App: „Dein Plan“ zeigt die nächsten drei Dienste, die übrigen klappen mit
+  „Alle anzeigen“ auf.
+
 ## 0.13.0
 
 - Hausdienst: **Tausch direkt untereinander.** In der App fragt man eine

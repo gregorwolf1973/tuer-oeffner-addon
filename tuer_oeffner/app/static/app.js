@@ -844,6 +844,23 @@ $("#ot-trennen").addEventListener("click", () => ausfuehren(async () => {
 const HD_STATUS = { offen: "offen", genehmigt: "genehmigt ✓", abgelehnt: "abgelehnt", zurueckgezogen: "zurückgezogen" };
 const HD_TAUSCH = { offen: "wartet auf Antwort", ja: "übernimmt ✓", nein: "kann nicht", zurueckgezogen: "zurückgezogen" };
 const HD_TAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+// "Dein Plan" zeigt erst die naechsten Dienste, der Rest klappt auf
+const HD_KURZ = 3;
+let hdAlleZeigen = false;
+
+function hdMehrZeigen() {
+  const eintraege = [...$("#hd-meine").children];
+  eintraege.forEach((li, i) => { li.hidden = !hdAlleZeigen && i >= HD_KURZ; });
+  const k = $("#hd-meine-mehr");
+  k.hidden = eintraege.length <= HD_KURZ;
+  k.textContent = hdAlleZeigen ? "Weniger anzeigen" : `Alle anzeigen (${eintraege.length - HD_KURZ} weitere)`;
+  k.setAttribute("aria-expanded", String(hdAlleZeigen));
+}
+
+$("#hd-meine-mehr").onclick = () => {
+  hdAlleZeigen = !hdAlleZeigen;
+  hdMehrZeigen();
+};
 
 function hdKnopf(text, fn, klasse = "") {
   const k = document.createElement("button");
@@ -898,6 +915,7 @@ function hausdienstZeigen(d) {
     ? d.meine.map((x) => hdEintrag(`${x.tag} ${x.aufgabe}`, x.geaendert ? "umgeplant" : ""))
     : [hdEintrag(d.eingetragen ? "In den nächsten vier Wochen hast du keinen Dienst."
       : "Du stehst noch nicht im Hausdienst-Plan.", "", "leise")]));
+  hdMehrZeigen();
   $("#hd-pause-block").hidden = !d.eingetragen;
   $("#hd-gefragt-bereich").hidden = !d.anfragen_an_mich.length;
   $("#hd-gefragt").replaceChildren(...d.anfragen_an_mich.map((a) => {
