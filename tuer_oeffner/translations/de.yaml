@@ -95,6 +95,21 @@ configuration:
   wlan_verschluesselung:
     name: Gäste-WLAN – Verschlüsselung
     description: WPA gilt auch für WPA2 und WPA3.
+  sip_addon:
+    name: Hausdienst – ha-sip-Add-on
+    description: >-
+      Slug des Add-ons ha-sip, das die Erinnerungsanrufe wählt. Leer = keine
+      Anrufe.
+  sip_konto:
+    name: Hausdienst – SIP-Konto in ha-sip
+    description: >-
+      Welches Konto von ha-sip anruft (1 bis 3). Ein eigenes Konto hält die
+      anderen Anrufe (z. B. einen Notruf) frei.
+  sip_server:
+    name: Hausdienst – SIP-Server
+    description: >-
+      Adresse der Telefonanlage, an die die Nummern gehen, z. B. 192.168.178.1
+      für die Fritz!Box.
   log_level:
     name: Protokollstufe
 network:

@@ -37,6 +37,42 @@
       </form>
     </section>
 
+    <section class="hd-verwaltung" aria-labelledby="hd-v-titel">
+      <div class="abschnitt-kopf">
+        <h2 id="hd-v-titel">Hausdienst</h2>
+        <span id="hd-zaehler" class="leise"></span>
+      </div>
+      <div id="hd-hinweise"></div>
+      <div id="hd-antraege" class="hd-antraege"></div>
+      <h3>Wochenplan <small class="leise">wiederholt sich jede Woche</small></h3>
+      <div id="hd-woche" class="hd-raster"></div>
+      <h3>Die nächsten 14 Tage <small class="leise">einzelne Tage umplanen</small></h3>
+      <div id="hd-tage" class="hd-raster"></div>
+      <h3>Anrufe am Morgen <small class="leise">über ha-sip, zweiter Anruf nach 30 min ohne Taste 1</small></h3>
+      <div id="hd-anrufe" class="hd-anrufe"></div>
+      <div class="hd-zwei">
+        <div>
+          <h3>Aufgaben</h3>
+          <div id="hd-aufgaben" class="hd-zeilen"></div>
+          <form id="hd-aufgabe-neu" class="hd-zeile">
+            <input name="name" placeholder="Name, z. B. Küche" maxlength="40" required>
+            <input name="ansage" placeholder="Ansage, z. B. Küchendienst" maxlength="60" required>
+            <button class="knopf klein">Hinzufügen</button>
+          </form>
+        </div>
+        <div>
+          <h3>Pausen</h3>
+          <div id="hd-pausen" class="hd-zeilen"></div>
+          <form id="hd-pause-neu" class="hd-zeile">
+            <select name="benutzer_id" aria-label="Wer" required></select>
+            <input type="date" name="von" aria-label="Von" required>
+            <input type="date" name="bis" aria-label="Bis" required>
+            <button class="knopf klein">Eintragen</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
     <div class="abschnitt-kopf">
       <h2>Zugänge</h2>
       <span id="zaehler" class="leise"></span>

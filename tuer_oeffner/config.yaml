@@ -1,10 +1,10 @@
 name: Türöffner
-version: "0.11.0"
+version: "0.12.0"
 slug: tuer_oeffner
 # Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
 # jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
 image: ghcr.io/gregorwolf1973/{arch}-addon-tuer_oeffner
-description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich. Für die Familie zusätzlich Warmwasser aufheizen, Staubsauger steuern, Livebild der Kamera, Pollenflug, Standorte der Familie und Gäste-WLAN per QR-Code
+description: Haustür per Handy öffnen – eigene Zugänge für Freunde mit Passwort, 2FA (Pflicht oder freiwillig) und Passkey, Freigabe durch dich. Für die Familie zusätzlich Warmwasser aufheizen, Staubsauger steuern, Livebild der Kamera, Pollenflug, Standorte der Familie, Hausdienst-Plan mit Anruf am Morgen und Gäste-WLAN per QR-Code
 url: https://github.com/gregorwolf1973/tuer-oeffner-addon
 arch:
   - aarch64
@@ -14,6 +14,8 @@ startup: application
 boot: auto
 # Fuer den Dienstaufruf (Tuer schalten, Benachrichtigung, Standort)
 homeassistant_api: true
+# Hausdienst: ha-sip meldet "Taste 1 gedrueckt" ueber hassio.addon_stdin zurueck
+stdin: true
 # Die Verwaltung gibt es NUR hier - aus dem Internet ist sie nicht erreichbar
 ingress: true
 ingress_port: 8097
@@ -46,6 +48,9 @@ options:
   wlan_name: ""
   wlan_schluessel: ""
   wlan_verschluesselung: WPA
+  sip_addon: "c7744bff_ha-sip"
+  sip_konto: 2
+  sip_server: "192.168.178.1"
   log_level: info
 schema:
   tuer_entitaet: str?
@@ -69,4 +74,7 @@ schema:
   wlan_name: str?
   wlan_schluessel: password?
   wlan_verschluesselung: list(WPA|WEP|offen)
+  sip_addon: str?
+  sip_konto: int(1,3)
+  sip_server: str?
   log_level: list(debug|info|warning|error)

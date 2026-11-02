@@ -112,6 +112,37 @@
         </div>
       </section>
 
+      <section id="hausdienst" class="karte" aria-labelledby="hd-titel" hidden>
+        <div class="karte-kopf">
+          <h2 id="hd-titel">Hausdienst</h2>
+          <span id="hd-heute-tag" class="leise"></span>
+        </div>
+        <ul id="hd-heute" class="hd-liste"></ul>
+        <h3>Dein Plan</h3>
+        <p id="hd-pausen" class="hinweis" hidden></p>
+        <ul id="hd-meine" class="hd-liste"></ul>
+        <details class="hd-antrag" id="hd-umplanen-block">
+          <summary>Umplanen beantragen</summary>
+          <form id="hd-umplanen" class="formular">
+            <label>Welcher Dienst?<select name="dienst" required></select></label>
+            <label>Wer übernimmt?<select name="an" required></select></label>
+            <button class="knopf haupt">Antrag stellen</button>
+          </form>
+        </details>
+        <details class="hd-antrag">
+          <summary>Pause beantragen</summary>
+          <form id="hd-pause" class="formular">
+            <label>Ab<input type="date" name="datum" required></label>
+            <label>Wie viele Tage?<input type="number" name="tage" min="1" max="60" value="7" required></label>
+            <button class="knopf haupt">Antrag stellen</button>
+          </form>
+        </details>
+        <div id="hd-antraege-bereich" hidden>
+          <h3>Deine Anträge</h3>
+          <ul id="hd-antraege" class="hd-liste"></ul>
+        </div>
+      </section>
+
       <section id="warmwasser" class="karte" aria-labelledby="ww-titel" hidden>
         <div class="karte-kopf">
           <h2 id="ww-titel">Warmwasser</h2>

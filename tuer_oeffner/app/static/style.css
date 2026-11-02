@@ -87,11 +87,11 @@ code { font-size: .95em; word-break: break-all; }
 
 .formular { display: grid; gap: 12px; }
 label { display: grid; gap: 4px; font-size: .92rem; color: var(--leise); }
-input {
+input, select {
   font: inherit; color: var(--text); background: var(--flaeche);
   border: 1px solid var(--rand); border-radius: 8px; padding: 11px 12px; width: 100%;
 }
-input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
+input:focus, select:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 
 .knopf {
   font: inherit; cursor: pointer; border-radius: 8px; padding: 10px 14px;
@@ -259,3 +259,20 @@ input:focus { outline: 2px solid var(--akzent-hell); outline-offset: 1px; }
 .darstellung { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .darstellung .knopf { min-height: 44px; padding: 8px 6px; font-size: .9rem; }
 .darstellung .knopf[aria-pressed="true"] { border-color: var(--akzent-hell); color: var(--akzent-hell); font-weight: 600; }
+
+/* ---------- Hausdienst ---------- */
+
+.hd-liste { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.hd-liste li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  background: var(--grund); border-radius: 8px; padding: 8px 10px;
+}
+.hd-liste li.ich { outline: 2px solid var(--akzent-hell); }
+.hd-liste li.leise { background: none; padding-left: 0; }
+.hd-liste small { color: var(--leise); }
+.hd-liste .knopf { margin-left: auto; }
+.hd-liste .antrag.abgelehnt small { color: var(--schlecht); }
+.hd-liste .antrag.genehmigt small { color: var(--gut); }
+.hd-antrag { margin-top: 12px; }
+.hd-antrag summary { cursor: pointer; color: var(--akzent-hell); }
+.hd-antrag .formular { margin-top: 10px; }

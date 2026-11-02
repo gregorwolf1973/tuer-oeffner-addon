@@ -1,5 +1,25 @@
 # Änderungen
 
+## 0.12.0
+
+- Neu: **Hausdienst** für die Familie. In der Verwaltung legst du Aufgaben an
+  (z. B. Küche → „Küchendienst“) und planst, wer an welchem Wochentag welche
+  Aufgabe hat. Der Plan wiederholt sich jede Woche. Einzelne Tage lassen sich
+  umplanen, ausfallen lassen oder um einen Dienst ergänzen; Pausen setzen die
+  Dienste einer Person aus.
+- In der App sieht die Familie, wer heute was macht, und unter „Dein Plan“
+  die eigenen Dienste der nächsten vier Wochen. Von dort lässt sich
+  beantragen, dass jemand anders einen Dienst übernimmt, oder eine Pause.
+  Anträge landen in der Glocke von Home Assistant; du genehmigst oder lehnst
+  in der Verwaltung ab, genehmigte Anträge werden sofort eingetragen.
+- **Anruf am Morgen** über das Add-on ha-sip: zur Uhrzeit, die du je Person
+  (und bei Bedarf je Wochentag) einstellst. Die Ansage wiederholt sich, damit
+  sie auch auf der Mailbox ankommt; Taste 1 heißt „verstanden“. Ohne Taste 1
+  kommt nach 30 Minuten ein zweiter Anruf. Ansagetext, Testanruf und die
+  letzten Anrufe stehen in der Verwaltung.
+- Neue Optionen `sip_addon`, `sip_konto` und `sip_server`. Das Add-on liest
+  jetzt stdin, darüber meldet ha-sip die Taste 1 zurück.
+
 ## 0.11.0
 
 - Warmwasser: Die Zieltemperatur kommt nicht mehr aus Home Assistant, sondern

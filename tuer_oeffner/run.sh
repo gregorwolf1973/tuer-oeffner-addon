@@ -21,6 +21,9 @@ export POLLEN_PRAEFIX="$(bashio::config 'pollen_praefix')"
 export WLAN_NAME="$(bashio::config 'wlan_name')"
 export WLAN_SCHLUESSEL="$(bashio::config 'wlan_schluessel')"
 export WLAN_VERSCHLUESSELUNG="$(bashio::config 'wlan_verschluesselung')"
+export SIP_ADDON="$(bashio::config 'sip_addon')"
+export SIP_KONTO="$(bashio::config 'sip_konto')"
+export SIP_SERVER="$(bashio::config 'sip_server')"
 export LOG_LEVEL="$(bashio::config 'log_level')"
 export DATA_DIR=/data
 

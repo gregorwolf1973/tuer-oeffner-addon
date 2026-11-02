@@ -48,6 +48,11 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
     Freigabe aus, verwirft das Add-on alles, was OwnTracks schickt.
   - **Pollenflug** vom DWD für heute, morgen und übermorgen: belastete
     Arten mit Farbstufe (gering – mittel – hoch), der Rest eingeklappt.
+  - **Hausdienst:** wer heute was macht und wann man selbst wieder dran
+    ist. Umplanen („Kai übernimmt“) oder eine Pause lässt sich beantragen;
+    der Antrag landet in der Glocke von Home Assistant und wird in der
+    Verwaltung entschieden. Zur eingestellten Uhrzeit ruft ha-sip an,
+    Taste 1 = verstanden, sonst nach 30 Minuten ein zweiter Anruf.
 
   Beides geht von überall, ohne Standortprüfung.
 - **Gäste-WLAN:** Jeder freigegebene Zugang – auch Freunde – hat in der App
@@ -58,7 +63,8 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 - **Verwaltung** nur hier in Home Assistant (Seitenleiste „Türöffner“):
   jeder Zugang als Karte mit Schaltern für „Aus der Ferne“ und „Familie“,
   dazu die **Warmwasser-Vorgabe** (Zieltemperatur beim Aufheizen) zum
-  Einstellen. Außerdem:
+  Einstellen und die Planung des **Hausdienstes** (Aufgaben, Wochenplan,
+  einzelne Tage, Pausen, Anträge, Telefonnummern und Anrufzeiten). Außerdem:
   freigeben, Fern-Recht, Familie, sperren, 2FA zurücksetzen, löschen, Protokoll und
   ein Knopf zum Testen. Aus dem Internet ist die Verwaltung nicht
   erreichbar.
@@ -108,6 +114,9 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
 | `kamera_entitaet` | Kamera für das Livebild (nur Familie), leer = kein Livebild |
 | `pollen_praefix` | Anfang der IDs der DWD-Pollenflug-Sensoren (`sensor.pollenflug_`), leer = keine Pollen-Karte |
+| `sip_addon` | Slug von ha-sip für die Hausdienst-Anrufe, leer = keine Anrufe |
+| `sip_konto` | welches Konto von ha-sip anruft (1–3) – am besten ein eigenes |
+| `sip_server` | Telefonanlage, an die die Nummern gehen, z. B. `192.168.178.1` |
 | `wlan_name`, `wlan_schluessel`, `wlan_verschluesselung` | Gäste-WLAN für den QR-Code-Knopf; ohne Name kein Knopf. `WPA` gilt auch für WPA2/WPA3 |
 
 ## Sicherheit

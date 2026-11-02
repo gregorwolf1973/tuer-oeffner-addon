@@ -83,3 +83,54 @@ tr:last-child td { border-bottom: 0; }
   .einstellungen-liste { grid-template-columns: 1fr; }
   .einstellungen-liste dd { margin-bottom: 6px; }
 }
+
+/* ---------- Hausdienst ---------- */
+
+.hd-verwaltung h3 small { font-weight: 400; margin-left: 6px; }
+.hd-verwaltung .hinweis { margin-bottom: 10px; }
+.hd-raster { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.hd-tag {
+  background: var(--flaeche); border: 1px solid var(--rand); border-radius: 12px;
+  padding: 10px 12px; display: grid; gap: 6px; align-content: start;
+}
+.hd-tag h4 { margin: 0 0 2px; font-size: .95rem; }
+.hd-tag p { margin: 0; }
+.hd-dienst {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: .9rem;
+  background: var(--grund); border-radius: 8px; padding: 5px 8px;
+}
+.hd-dienst > span:first-child { flex: 1 1 0; min-width: 0; }
+.hd-dienst.geaendert { outline: 2px solid #e0b84a; }
+.hd-dienst.aus { opacity: .6; text-decoration: line-through; }
+.hd-dienst select { flex: 1 1 100%; padding: 4px 6px; font-size: .85rem; }
+.hd-neu { display: grid; gap: 4px; }
+.hd-neu select { padding: 4px 6px; font-size: .85rem; min-width: 0; }
+.hd-neu .knopf { justify-self: start; }
+.hd-zwei { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 24px; }
+.hd-zeilen { display: grid; gap: 6px; margin-bottom: 8px; }
+.hd-zeile { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hd-zeile { flex-wrap: nowrap; }
+.hd-zeile input, .hd-zeile select { flex: 1 1 0; min-width: 0; width: auto; padding: 6px 8px; }
+.hd-zeile > span { flex: 1 1 auto; }
+.hd-zeile .knopf { flex: none; }
+.hd-antraege { display: grid; gap: 6px; margin-bottom: 8px; }
+.hd-antrag {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  background: var(--flaeche); border: 1px solid var(--rand); border-radius: 10px; padding: 8px 12px;
+}
+.hd-antrag.offen { border-color: #e0b84a; }
+.hd-antrag > span:first-child { flex: 1 1 260px; }
+.hd-antrag .knopf.haupt { width: auto; padding: 6px 14px; }
+.hd-anrufe { display: grid; gap: 10px; }
+.hd-anrufe > .recht { max-width: 420px; }
+.hd-ansage { display: grid; gap: 6px; }
+.hd-ansage label { display: block; }
+.hd-ansage textarea {
+  font: inherit; color: var(--text); background: var(--flaeche); border: 1px solid var(--rand);
+  border-radius: 8px; padding: 8px 10px; width: 100%; resize: vertical;
+}
+.hd-telefon td { padding: 4px 6px; }
+.hd-telefon input { padding: 4px 6px; font-size: .85rem; min-width: 0; }
+.hd-telefon input[type="time"] { width: 92px; }
+.hd-telefon td:last-child { white-space: nowrap; }
+.hd-telefon td:last-child .knopf + .knopf { margin-left: 4px; }

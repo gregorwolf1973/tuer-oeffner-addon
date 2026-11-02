@@ -102,6 +102,7 @@ async function laden() {
   $("#wlan").hidden = !zustand.wlan;
   $("#pollen").hidden = !zustand.pollen;
   $("#standorte").hidden = !zustand.standorte;
+  $("#hausdienst").hidden = !zustand.hausdienst;
   ort.teilen = Boolean(zustand.standort_teilen);
   ortKnopfZeigen();
   owntracksZeigen();
@@ -838,12 +839,96 @@ $("#ot-trennen").addEventListener("click", () => ausfuehren(async () => {
   await laden();
 }).catch(() => {}));
 
+/* ---------- Hausdienst: wer heute dran ist, der eigene Plan, Antraege ---------- */
+
+const HD_STATUS = { offen: "offen", genehmigt: "genehmigt ✓", abgelehnt: "abgelehnt", zurueckgezogen: "zurückgezogen" };
+
+function hdEintrag(text, zusatz, klasse = "") {
+  const li = document.createElement("li");
+  li.className = klasse;
+  li.append(document.createTextNode(text));
+  if (zusatz) {
+    const s = document.createElement("small");
+    s.textContent = zusatz;
+    li.append(s);
+  }
+  return li;
+}
+
+function auswahl(wert, text) {
+  const o = document.createElement("option");
+  o.value = wert;
+  o.textContent = text;
+  return o;
+}
+
+function hausdienstZeigen(d) {
+  $("#hd-heute-tag").textContent = d.heute;
+  $("#hd-heute").replaceChildren(...(d.dienste.length
+    ? d.dienste.map((x) => hdEintrag(`${x.name}: ${x.aufgabe}`, x.ich ? "das bist du" : "", x.ich ? "ich" : ""))
+    : [hdEintrag("Heute hat niemand Dienst.", "", "leise")]));
+  const pausen = $("#hd-pausen");
+  pausen.hidden = !d.pausen.length;
+  pausen.textContent = "Pause: " + d.pausen.map((p) => `${p.von} bis ${p.bis}`).join(" · ");
+  $("#hd-meine").replaceChildren(...(d.meine.length
+    ? d.meine.map((x) => hdEintrag(`${x.tag} ${x.aufgabe}`, x.geaendert ? "umgeplant" : ""))
+    : [hdEintrag("In den nächsten vier Wochen hast du keinen Dienst.", "", "leise")]));
+  // Die Auswahl nicht unter den Fingern austauschen
+  const block = $("#hd-umplanen-block");
+  if (!block.open) {
+    $('#hd-umplanen [name="dienst"]').replaceChildren(
+      ...d.meine.map((x) => auswahl(`${x.datum}|${x.aufgabe_id}`, `${x.tag} ${x.aufgabe}`)));
+    $('#hd-umplanen [name="an"]').replaceChildren(...d.familie.map((f) => auswahl(f.id, f.name)));
+  }
+  block.hidden = !d.meine.length || !d.familie.length;
+  const tage = $('#hd-pause [name="tage"]');
+  tage.max = d.pause_max;
+  $('#hd-pause [name="datum"]').min = new Date().toLocaleDateString("sv");
+  $("#hd-antraege-bereich").hidden = !d.antraege.length;
+  $("#hd-antraege").replaceChildren(...d.antraege.map((a) => {
+    const li = hdEintrag(a.text, HD_STATUS[a.status] || a.status, "antrag " + a.status);
+    if (a.status === "offen") {
+      const k = document.createElement("button");
+      k.type = "button";
+      k.className = "knopf klein";
+      k.textContent = "Zurückziehen";
+      k.onclick = () => ausfuehren(async () => {
+        await api(`hausdienst/antrag/${a.id}/zurueckziehen`, {});
+        hausdienstLaden();
+      }).catch(() => {});
+      li.append(k);
+    }
+    return li;
+  }));
+}
+
+async function hausdienstLaden() {
+  try {
+    hausdienstZeigen(await api("hausdienst"));
+  } catch { /* Anzeige bleibt, wie sie war */ }
+}
+
+formular("#hd-umplanen", async (d) => {
+  const [datum, aufgabe] = d.dienst.split("|");
+  await api("hausdienst/antrag", { art: "umplanen", datum, aufgabe_id: Number(aufgabe), an_id: Number(d.an) });
+  $("#hd-umplanen-block").open = false;
+  melde("Der Antrag ist gestellt.", "ok");
+  hausdienstLaden();
+});
+
+formular("#hd-pause", async (d) => {
+  await api("hausdienst/antrag", { art: "pause", datum: d.datum, tage: Number(d.tage) });
+  melde("Der Antrag ist gestellt.", "ok");
+  hausdienstLaden();
+});
+
 /* ---------- Familie: Anzeigen aktuell halten ---------- */
 
 function familieLaden() {
   if (!$("#warmwasser").hidden) warmwasserLaden();
   if (!$("#staubsauger").hidden) staubsaugerLaden();
   if (!$("#pollen").hidden) pollenLaden();
+  if (!$("#hausdienst").hidden) hausdienstLaden();
   if (!$("#standorte").hidden) {
     ortSenden();
     ortLaden();
