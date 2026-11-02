@@ -64,7 +64,7 @@ ZUSTAENDE = {}
 def sauber():
     conn = server.verbinden()
     conn.executescript("DELETE FROM hd_anrufe; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
-                       " DELETE FROM hd_plan; DELETE FROM hd_aufgaben;"
+                       " DELETE FROM hd_plan; DELETE FROM hd_aufgaben; DELETE FROM hd_personen;"
                        " DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;"
                        " DELETE FROM einstellungen;")
     conn.commit()
@@ -1053,11 +1053,15 @@ def hausdienst(monkeypatch, ha):
     admin = server.app.test_client()
     for name, ansage in (("Küche", "Küchendienst"), ("Flur", "Flurdienst")):
         assert post(admin, "/api/admin/hausdienst/aufgabe", {"name": name, "ansage": ansage}, environ_base=INGRESS).status_code == 200
+    for name, email in (("Anna", "anna@example.org"), ("Bert", "bert@example.org")):
+        r = post(admin, "/api/admin/hausdienst/person", {"name": name, "benutzer_id": benutzer_id(email)},
+                 environ_base=INGRESS)
+        assert r.status_code == 200, r.json
     d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json
     auf = {a["name"]: a["id"] for a in d["aufgaben"]}
-    ids = {"anna": benutzer_id("anna@example.org"), "bert": benutzer_id("bert@example.org")}
+    ids = {p["name"].lower(): p["id"] for p in d["personen"]}
     for tag, wer, was in ((0, "anna", "Küche"), (1, "bert", "Flur")):
-        r = post(admin, "/api/admin/hausdienst/plan", {"wochentag": tag, "benutzer_id": ids[wer], "aufgabe_id": auf[was]},
+        r = post(admin, "/api/admin/hausdienst/plan", {"wochentag": tag, "person_id": ids[wer], "aufgabe_id": auf[was]},
                  environ_base=INGRESS)
         assert r.status_code == 200, r.json
     return {"anna": anna, "bert": bert, "admin": admin, "auf": auf, "ids": ids}
@@ -1136,15 +1140,15 @@ def test_einzelnen_tag_umplanen(hausdienst):
     d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json
     plan_id = d["tage"][0]["dienste"][0]["plan_id"]
     # Planeintrag vom Montag passt nicht auf einen Dienstag
-    assert post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-03", "plan_id": plan_id, "benutzer_id": ids["bert"]},
+    assert post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-03", "plan_id": plan_id, "person_id": ids["bert"]},
                 environ_base=INGRESS).status_code == 400
-    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "plan_id": plan_id, "benutzer_id": None}, environ_base=INGRESS)
-    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "benutzer_id": ids["bert"], "aufgabe_id": auf["Flur"]},
+    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "plan_id": plan_id, "person_id": None}, environ_base=INGRESS)
+    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "person_id": ids["bert"], "aufgabe_id": auf["Flur"]},
          environ_base=INGRESS)
     heute = hausdienst["anna"].get("/api/hausdienst").json["dienste"]
     assert heute == [{"name": "Bert", "aufgabe": "Flur", "ich": False}]
     # Zurueck auf die Person aus dem Plan hebt die Abweichung auf
-    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "plan_id": plan_id, "benutzer_id": ids["anna"]},
+    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "plan_id": plan_id, "person_id": ids["anna"]},
          environ_base=INGRESS)
     tag = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["tage"][0]
     kueche = next(x for x in tag["dienste"] if x["aufgabe"] == "Küche")
@@ -1180,7 +1184,7 @@ def anrufe(hausdienst, monkeypatch):
     admin, ids = hausdienst["admin"], hausdienst["ids"]
     assert post(admin, "/api/admin/hausdienst/anrufe", {"an": True}, environ_base=INGRESS).status_code == 200
     r = post(admin, "/api/admin/hausdienst/telefon",
-             {"benutzer_id": ids["anna"], "nummer": "0170 / 123-4567", "zeit": "06:30", "tage": {"0": "07:15"}},
+             {"person_id": ids["anna"], "nummer": "0170 / 123-4567", "zeit": "06:30", "tage": {"0": "07:15"}},
              environ_base=INGRESS)
     assert r.status_code == 200, r.json
     return hausdienst
@@ -1240,18 +1244,18 @@ def test_kein_anruf_wenn_aus_zu_spaet_pausiert_oder_kein_dienst(anrufe, ha):
     assert waehlen(ha) == []
     post(anrufe["admin"], "/api/admin/hausdienst/anrufe", {"an": True}, environ_base=INGRESS)
     post(anrufe["admin"], "/api/admin/hausdienst/pause",
-         {"benutzer_id": anrufe["ids"]["anna"], "von": "2026-11-02", "bis": "2026-11-02"}, environ_base=INGRESS)
+         {"person_id": anrufe["ids"]["anna"], "von": "2026-11-02", "bis": "2026-11-02"}, environ_base=INGRESS)
     pruefen(um(7, 15))
     assert waehlen(ha) == []
 
 
 def test_mehrere_dienste_und_abstand_zwischen_anrufen(anrufe, ha):
     admin, auf, ids = anrufe["admin"], anrufe["auf"], anrufe["ids"]
-    post(admin, "/api/admin/hausdienst/plan", {"wochentag": 0, "benutzer_id": ids["anna"], "aufgabe_id": auf["Flur"]},
+    post(admin, "/api/admin/hausdienst/plan", {"wochentag": 0, "person_id": ids["anna"], "aufgabe_id": auf["Flur"]},
          environ_base=INGRESS)
-    post(admin, "/api/admin/hausdienst/plan", {"wochentag": 0, "benutzer_id": ids["bert"], "aufgabe_id": auf["Flur"]},
+    post(admin, "/api/admin/hausdienst/plan", {"wochentag": 0, "person_id": ids["bert"], "aufgabe_id": auf["Flur"]},
          environ_base=INGRESS)
-    post(admin, "/api/admin/hausdienst/telefon", {"benutzer_id": ids["bert"], "nummer": "0171555", "zeit": "07:15"},
+    post(admin, "/api/admin/hausdienst/telefon", {"person_id": ids["bert"], "nummer": "0171555", "zeit": "07:15"},
          environ_base=INGRESS)
     pruefen(um(7, 15))
     assert "du hast Flurdienst und Küchendienst." in waehlen(ha)[0]["menu"]["message"]
@@ -1265,7 +1269,7 @@ def test_telefon_und_ansage_pruefen(anrufe):
     admin, ids = anrufe["admin"], anrufe["ids"]
     for falsch in ({"nummer": "abc"}, {"zeit": "6:30"}, {"zeit": "06:30", "tage": {"7": "06:00"}},
                    {"zeit": "06:30", "tage": {"1": "25:00"}}):
-        r = post(admin, "/api/admin/hausdienst/telefon", {"benutzer_id": ids["anna"]} | falsch, environ_base=INGRESS)
+        r = post(admin, "/api/admin/hausdienst/telefon", {"person_id": ids["anna"]} | falsch, environ_base=INGRESS)
         assert r.status_code == 400, falsch
     r = post(admin, "/api/admin/hausdienst/anrufe", {"ansage": "Hallo {name}"}, environ_base=INGRESS)
     assert r.status_code == 400
@@ -1276,7 +1280,7 @@ def test_telefon_und_ansage_pruefen(anrufe):
 
 def test_testanruf(anrufe, ha):
     admin, ids = anrufe["admin"], anrufe["ids"]
-    r = post(admin, "/api/admin/hausdienst/testanruf", {"benutzer_id": ids["anna"]}, environ_base=INGRESS)
+    r = post(admin, "/api/admin/hausdienst/testanruf", {"person_id": ids["anna"]}, environ_base=INGRESS)
     assert r.status_code == 200 and "Küchendienst" in r.json["ansage"]
     assert len(waehlen(ha)) == 1
     # Ein Testanruf zaehlt nicht als Anruf des Tages. (Er lief "jetzt" -
@@ -1287,7 +1291,7 @@ def test_testanruf(anrufe, ha):
     conn.close()
     pruefen(um(7, 15) + server.datetime.timedelta(minutes=5))
     assert len(waehlen(ha)) == 2
-    r = post(admin, "/api/admin/hausdienst/testanruf", {"benutzer_id": ids["bert"]}, environ_base=INGRESS)
+    r = post(admin, "/api/admin/hausdienst/testanruf", {"person_id": ids["bert"]}, environ_base=INGRESS)
     assert r.status_code == 400  # keine Nummer
 
 
@@ -1299,14 +1303,127 @@ def test_antrag_grenzen(hausdienst):
     assert post(anna, "/api/hausdienst/antrag", {"art": "pause", "datum": "2026-11-05", "tage": 2}).status_code == 200
     assert post(anna, "/api/hausdienst/antrag", {"art": "pause", "datum": "2026-11-05", "tage": 3}).status_code == 400
     # Wer Pause hat, kann nichts uebernehmen
-    post(admin, "/api/admin/hausdienst/pause", {"benutzer_id": ids["bert"], "von": "2026-11-09", "bis": "2026-11-09"},
+    post(admin, "/api/admin/hausdienst/pause", {"person_id": ids["bert"], "von": "2026-11-09", "bis": "2026-11-09"},
          environ_base=INGRESS)
     r = post(anna, "/api/hausdienst/antrag", {"art": "umplanen", "datum": "2026-11-09", "aufgabe_id": auf["Küche"],
                                               "an_id": ids["bert"]})
     assert r.status_code == 400 and "Pause" in r.json["fehler"]
 
 
-def test_gesperrte_werden_nicht_angerufen(anrufe, ha):
-    post(anrufe["admin"], f"/api/admin/benutzer/{anrufe['ids']['anna']}/sperren", environ_base=INGRESS)
+def test_person_ohne_zugang_planen_und_anrufen(anrufe, ha):
+    admin, auf = anrufe["admin"], anrufe["auf"]
+    assert post(admin, "/api/admin/hausdienst/person", {"name": "Sven"}, environ_base=INGRESS).status_code == 200
+    assert post(admin, "/api/admin/hausdienst/person", {"name": "Sven"}, environ_base=INGRESS).status_code == 400
+    d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json
+    sven = next(p for p in d["personen"] if p["name"] == "Sven")
+    assert sven["benutzer_id"] is None and sven["zugang"] is None
+    post(admin, "/api/admin/hausdienst/plan", {"wochentag": 0, "person_id": sven["id"], "aufgabe_id": auf["Flur"]},
+         environ_base=INGRESS)
+    post(admin, "/api/admin/hausdienst/telefon", {"person_id": sven["id"], "nummer": "0172999", "zeit": "07:15"},
+         environ_base=INGRESS)
+    # Anna kann einen Dienst auch an jemanden ohne Zugang abgeben
+    r = post(anrufe["anna"], "/api/hausdienst/antrag", {"art": "umplanen", "datum": "2026-11-09",
+                                                         "aufgabe_id": auf["Küche"], "an_id": sven["id"]})
+    assert r.status_code == 200, r.json
     pruefen(um(7, 15))
-    assert waehlen(ha) == []
+    pruefen(um(7, 18))
+    assert sorted(a["number"] for a in waehlen(ha)) == ["sip:01701234567@192.168.178.1", "sip:0172999@192.168.178.1"]
+    # Loeschen nimmt Plan und Telefon mit
+    post(admin, f"/api/admin/hausdienst/person/{sven['id']}/loeschen", environ_base=INGRESS)
+    d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json
+    assert [p["name"] for p in d["plan"]] == ["Anna", "Bert"] and str(sven["id"]) not in d["telefon"]
+
+
+def test_zugang_verknuepfen(hausdienst):
+    admin, ids = hausdienst["admin"], hausdienst["ids"]
+    cleo = server.app.test_client()
+    registrieren(cleo, "cleo@example.org", "Cleo")
+    cid = benutzer_id("cleo@example.org")
+    # Nur Zugaenge mit Haken "Familie" - auch wenn sie noch nicht freigegeben sind
+    assert post(admin, "/api/admin/hausdienst/person", {"name": "Cleo", "benutzer_id": cid}, environ_base=INGRESS).status_code == 400
+    post(admin, f"/api/admin/benutzer/{cid}/familie_an", environ_base=INGRESS)
+    d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json
+    assert {"id": cid, "name": "Cleo", "status": "wartet"} in d["zugaenge"]
+    assert post(admin, "/api/admin/hausdienst/person", {"name": "Cleo", "benutzer_id": cid}, environ_base=INGRESS).status_code == 200
+    # Ein Zugang gehoert zu hoechstens einer Person
+    r = post(admin, "/api/admin/hausdienst/person", {"id": ids["bert"], "name": "Bert", "benutzer_id": cid},
+             environ_base=INGRESS)
+    assert r.status_code == 400
+    # Bert ohne Zugang: in der App nur noch "heute", keine Antraege
+    post(admin, "/api/admin/hausdienst/person", {"id": ids["bert"], "name": "Bert", "benutzer_id": None}, environ_base=INGRESS)
+    d = hausdienst["bert"].get("/api/hausdienst").json
+    assert d["eingetragen"] is False and d["meine"] == [] and d["familie"] == []
+    assert d["dienste"] == [{"name": "Anna", "aufgabe": "Küche", "ich": False}]
+    r = post(hausdienst["bert"], "/api/hausdienst/antrag", {"art": "pause", "datum": "2026-11-05", "tage": 2})
+    assert r.status_code == 403
+    # Ein geloeschter Zugang laesst die Person stehen
+    conn = server.verbinden()
+    conn.execute("DELETE FROM benutzer WHERE id = ?", (benutzer_id("anna@example.org"),))
+    conn.commit()
+    conn.close()
+    anna = next(p for p in admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["personen"] if p["name"] == "Anna")
+    assert anna["benutzer_id"] is None
+
+
+def test_umstellung_aus_0_12_0(tmp_path):
+    """0.12.0 plante mit den Zugaengen - beim Start werden daraus Personen."""
+    alt = tmp_path / "alt.db"
+    conn = server.sqlite3.connect(alt)
+    conn.executescript("""
+        CREATE TABLE benutzer (id INTEGER PRIMARY KEY, name TEXT, email TEXT UNIQUE, pw_hash TEXT, status TEXT,
+                               familie INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE hd_aufgaben (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, ansage TEXT NOT NULL);
+        CREATE TABLE hd_plan (id INTEGER PRIMARY KEY, wochentag INTEGER NOT NULL,
+            benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+            aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
+            UNIQUE (wochentag, benutzer_id, aufgabe_id));
+        CREATE TABLE hd_abweichungen (id INTEGER PRIMARY KEY, datum TEXT NOT NULL,
+            plan_id INTEGER REFERENCES hd_plan(id) ON DELETE CASCADE,
+            aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
+            benutzer_id INTEGER REFERENCES benutzer(id) ON DELETE CASCADE);
+        CREATE UNIQUE INDEX hd_abweichung_plan ON hd_abweichungen(datum, plan_id) WHERE plan_id IS NOT NULL;
+        CREATE TABLE hd_pausen (id INTEGER PRIMARY KEY, benutzer_id INTEGER NOT NULL REFERENCES benutzer(id)
+            ON DELETE CASCADE, von TEXT NOT NULL, bis TEXT NOT NULL);
+        CREATE TABLE hd_telefon (benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
+            nummer TEXT NOT NULL DEFAULT '', zeit TEXT NOT NULL DEFAULT '', tage TEXT NOT NULL DEFAULT '{}');
+        CREATE TABLE hd_anrufe (id INTEGER PRIMARY KEY, datum TEXT NOT NULL,
+            benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE, versuch INTEGER NOT NULL,
+            zeit INTEGER NOT NULL, kennung TEXT NOT NULL UNIQUE, bestaetigt INTEGER, fehler TEXT);
+        CREATE TABLE hd_antraege (id INTEGER PRIMARY KEY,
+            benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE, art TEXT NOT NULL,
+            datum TEXT NOT NULL, aufgabe_id INTEGER REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
+            an_id INTEGER REFERENCES benutzer(id) ON DELETE CASCADE, tage INTEGER,
+            status TEXT NOT NULL DEFAULT 'offen', angelegt INTEGER NOT NULL, entschieden INTEGER);
+        INSERT INTO benutzer (id, name, email, status, familie) VALUES
+            (1, 'Gregor', 'g@x', 'aktiv', 1), (2, 'Levin', 'l@x', 'aktiv', 1), (3, 'Kai', 'k@x', 'neu', 1),
+            (4, 'Gast', 'x@x', 'aktiv', 0);
+        INSERT INTO hd_aufgaben VALUES (1, 'Küche', 'Küchendienst');
+        INSERT INTO hd_plan VALUES (1, 0, 2, 1);
+        INSERT INTO hd_abweichungen VALUES (1, '2026-11-09', 1, 1, 1);
+        INSERT INTO hd_pausen VALUES (1, 1, '2026-11-10', '2026-11-12');
+        INSERT INTO hd_telefon VALUES (2, '0170', '06:00', '{}');
+        INSERT INTO hd_antraege (id, benutzer_id, art, datum, aufgabe_id, an_id, angelegt)
+            VALUES (1, 2, 'umplanen', '2026-11-16', 1, 1, 1);
+    """)
+    conn.commit()
+    conn.close()
+    pfad = server.DB_PFAD
+    server.DB_PFAD = str(alt)
+    try:
+        server.db_einrichten()
+        server.db_einrichten()  # ein zweiter Start aendert nichts mehr
+        conn = server.verbinden()
+        conn.row_factory = None
+        assert conn.execute("SELECT id, name, benutzer_id FROM hd_personen ORDER BY id").fetchall() == [
+            (1, "Gregor", 1), (2, "Levin", 2), (3, "Kai", 3)]
+        assert conn.execute("SELECT wochentag, person_id, aufgabe_id FROM hd_plan").fetchall() == [(0, 2, 1)]
+        assert conn.execute("SELECT person_id FROM hd_abweichungen").fetchall() == [(1,)]
+        assert conn.execute("SELECT person_id, von FROM hd_pausen").fetchall() == [(1, "2026-11-10")]
+        assert conn.execute("SELECT person_id, nummer FROM hd_telefon").fetchall() == [(2, "0170")]
+        assert conn.execute("SELECT person_id, an_id FROM hd_antraege").fetchall() == [(2, 1)]
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert not [r for r in conn.execute("SELECT name FROM sqlite_master WHERE name LIKE '%_alt'")]
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        conn.close()
+    finally:
+        server.DB_PFAD = pfad

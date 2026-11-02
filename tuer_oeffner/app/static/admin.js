@@ -244,7 +244,7 @@ async function laden() {
    sonst klappt eine Auswahl unter den Fingern wieder zu. */
 
 const HD_STATUS = { offen: "offen", genehmigt: "genehmigt", abgelehnt: "abgelehnt", zurueckgezogen: "zurückgezogen" };
-const hd = { personen: [], aufgaben: [] };
+const hd = { personen: [], aufgaben: [], zugaenge: [] };
 
 function liste(name, eintraege, leer) {
   const s = el("select");
@@ -274,7 +274,7 @@ async function hdSenden(pfad, daten, frage) {
 /* Kleines Formular "Wer? Was? +" fuer einen weiteren Dienst */
 function dienstDazu(beschriftung, senden) {
   const f = el("form", null, "hd-neu");
-  const wer = liste("benutzer_id", personenListe(), "Wer?");
+  const wer = liste("person_id", personenListe(), "Wer?");
   const was = liste("aufgabe_id", aufgabenListe(), "Was?");
   wer.required = was.required = true;
   wer.setAttribute("aria-label", "Wer");
@@ -306,7 +306,7 @@ function wocheZeigen(d) {
       spalte.append(z);
     });
     spalte.append(dienstDazu(`Dienst am ${name} hinzufügen`,
-      (benutzer_id, aufgabe_id) => hdSenden("plan", { wochentag: tag, benutzer_id, aufgabe_id })));
+      (person_id, aufgabe_id) => hdSenden("plan", { wochentag: tag, person_id, aufgabe_id })));
     return spalte;
   }));
 }
@@ -322,11 +322,11 @@ function tageZeigen(d) {
       if (x.plan_id) {
         // Person wechseln oder ausfallen lassen
         const leute = personenListe();
-        if (x.benutzer_id && !leute.some(([id]) => id === x.benutzer_id)) leute.push([x.benutzer_id, x.name]);
+        if (x.person_id && !leute.some(([id]) => id === x.person_id)) leute.push([x.person_id, x.name]);
         const wer = liste("wer", leute, "– entfällt –");
-        wer.value = x.benutzer_id ?? "";
+        wer.value = x.person_id ?? "";
         wer.setAttribute("aria-label", `Wer macht ${x.aufgabe} am ${t.tag}`);
-        wer.onchange = () => hdSenden("tag", { datum: t.datum, plan_id: x.plan_id, benutzer_id: wer.value ? Number(wer.value) : null });
+        wer.onchange = () => hdSenden("tag", { datum: t.datum, plan_id: x.plan_id, person_id: wer.value ? Number(wer.value) : null });
         z.append(wer);
         if (x.abweichung_id) z.append(knopf("wie im Plan", () => hdSenden(`tag/${x.abweichung_id}/loeschen`, {})));
       } else {
@@ -336,7 +336,7 @@ function tageZeigen(d) {
       karte.append(z);
     });
     karte.append(dienstDazu(`Dienst nur am ${t.tag} hinzufügen`,
-      (benutzer_id, aufgabe_id) => hdSenden("tag", { datum: t.datum, benutzer_id, aufgabe_id })));
+      (person_id, aufgabe_id) => hdSenden("tag", { datum: t.datum, person_id, aufgabe_id })));
     return karte;
   }));
 }
@@ -354,6 +354,39 @@ function antraegeZeigen(d) {
     }
     return z;
   }));
+}
+
+/* Auswahl des Zugangs: frei oder schon mit dieser Person verknuepft */
+function zugangListe(eigener) {
+  const vergeben = new Set(hd.personen.map((p) => p.benutzer_id).filter((b) => b && b !== eigener));
+  const s = liste("benutzer_id", hd.zugaenge.filter((z) => !vergeben.has(z.id))
+    .map((z) => [z.id, z.name + (z.status === "aktiv" ? "" : " (nicht freigegeben)")]), "ohne Zugang");
+  s.value = eigener ?? "";
+  s.setAttribute("aria-label", "Zugang");
+  return s;
+}
+
+function personenZeigen(d) {
+  $("#hd-personen").replaceChildren(...d.personen.map((p) => {
+    const f = el("form", null, "hd-zeile");
+    const name = el("input");
+    Object.assign(name, { name: "name", value: p.name, maxLength: 40, required: true });
+    name.setAttribute("aria-label", "Name");
+    const zugang = zugangListe(p.benutzer_id);
+    f.append(name, zugang, el("button", "Speichern", "knopf klein"),
+      loeschKnopf(`${p.name} löschen`, () => hdSenden(`person/${p.id}/loeschen`, {},
+        `${p.name} aus dem Hausdienst löschen? Die Dienste im Plan, Pausen und die Telefonnummer verschwinden mit.`)));
+    f.onsubmit = (ev) => {
+      ev.preventDefault();
+      hdSenden("person", { id: p.id, name: name.value, benutzer_id: zugang.value ? Number(zugang.value) : null });
+    };
+    return f;
+  }));
+  if (!d.personen.length) $("#hd-personen").append(el("p", "Noch niemand eingetragen.", "leise"));
+  const neu = $('#hd-person-neu [name="benutzer_id"]');
+  const gewaehlt = neu.value;
+  neu.replaceWith(zugangListe(null));
+  $('#hd-person-neu [name="benutzer_id"]').value = gewaehlt;
 }
 
 function aufgabenZeigen(d) {
@@ -385,8 +418,11 @@ function pausenZeigen(d) {
     return z;
   }));
   if (!d.pausen.length) $("#hd-pausen").append(el("p", "Gerade keine Pausen.", "leise"));
-  const wer = $('#hd-pause-neu [name="benutzer_id"]');
+  // Die Auswahl bleibt stehen, auch wenn die Liste neu geladen wird
+  const wer = $('#hd-pause-neu [name="person_id"]');
+  const gewaehlt = wer.value;
   wer.replaceChildren(new Option("Wer?", ""), ...personenListe().map(([id, n]) => new Option(n, id)));
+  wer.value = gewaehlt;
 }
 
 /* Anrufe: Schalter, Ansage, Nummer und Uhrzeit je Person, Protokoll */
@@ -434,13 +470,13 @@ function anrufeZeigen(d) {
     const uhr = eingabe({ type: "time", value: t.zeit }, `Uhrzeit für ${p.name}`);
     const tage = KURZ_TAGE.map((k, i) => eingabe({ type: "time", value: t.tage[i] || "" }, `${p.name} am ${d.wochentage[i]} abweichend`));
     const speichern = knopf("Speichern", () => hdSenden("telefon", {
-      benutzer_id: p.id, nummer: nummer.value, zeit: uhr.value,
+      person_id: p.id, nummer: nummer.value, zeit: uhr.value,
       tage: Object.fromEntries(tage.map((x, i) => [i, x.value]).filter(([, v]) => v)),
     }));
     const test = knopf("Testanruf", async () => {
       if (!confirm(`${p.name} jetzt anrufen?`)) return;
       try {
-        const r = await api("admin/hausdienst/testanruf", { benutzer_id: p.id });
+        const r = await api("admin/hausdienst/testanruf", { person_id: p.id });
         melde(`Ruft ${p.name} an: „${r.ansage}“`, "ok");
       } catch (e) {
         melde(e.message);
@@ -495,13 +531,15 @@ async function hausdienstLaden() {
   }
   hd.personen = d.personen;
   hd.aufgaben = d.aufgaben;
+  hd.zugaenge = d.zugaenge;
   const hinweise = [];
-  if (!d.personen.length) hinweise.push("Noch niemand gehört zur Familie – planen lässt sich nur, wer unten bei den Zugängen „Familie“ hat.");
+  if (!d.personen.length) hinweise.push("Zuerst unten die Personen anlegen – mit oder ohne Zugang zum Türöffner.");
   if (!d.aufgaben.length) hinweise.push("Zuerst unten die Aufgaben anlegen (z. B. Küche → Küchendienst), dann den Wochenplan füllen.");
   $("#hd-hinweise").replaceChildren(...hinweise.map((w) => el("p", w, "hinweis")));
   antraegeZeigen(d);
   wocheZeigen(d);
   tageZeigen(d);
+  personenZeigen(d);
   aufgabenZeigen(d);
   pausenZeigen(d);
   anrufeZeigen(d);
@@ -513,10 +551,17 @@ $("#hd-aufgabe-neu").addEventListener("submit", async (ev) => {
   if (await hdSenden("aufgabe", { name: f.namedItem("name").value, ansage: f.namedItem("ansage").value })) ev.target.reset();
 });
 
+$("#hd-person-neu").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements;
+  const zugang = f.namedItem("benutzer_id").value;
+  if (await hdSenden("person", { name: f.namedItem("name").value, benutzer_id: zugang ? Number(zugang) : null })) ev.target.reset();
+});
+
 $("#hd-pause-neu").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = ev.target.elements;
-  const daten = { benutzer_id: Number(f.namedItem("benutzer_id").value), von: f.namedItem("von").value, bis: f.namedItem("bis").value };
+  const daten = { person_id: Number(f.namedItem("person_id").value), von: f.namedItem("von").value, bis: f.namedItem("bis").value };
   if (await hdSenden("pause", daten)) ev.target.reset();
 });
 

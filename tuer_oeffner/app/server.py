@@ -240,6 +240,13 @@ CREATE TABLE IF NOT EXISTS standorte (
 );
 -- Hausdienst: Aufgaben, Wochenplan (wiederholt sich jede Woche) und was an
 -- einzelnen Tagen davon abweicht
+-- Wer mitmacht - mit oder ohne Zugang zum Tueroeffner. Nur mit
+-- verknuepftem Zugang sieht die Person ihren Plan in der App.
+CREATE TABLE IF NOT EXISTS hd_personen (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    benutzer_id INTEGER UNIQUE REFERENCES benutzer(id) ON DELETE SET NULL
+);
 CREATE TABLE IF NOT EXISTS hd_aufgaben (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -250,31 +257,31 @@ CREATE TABLE IF NOT EXISTS hd_plan (
     id INTEGER PRIMARY KEY,
     -- 0 = Montag ... 6 = Sonntag
     wochentag INTEGER NOT NULL,
-    benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
     aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
-    UNIQUE (wochentag, benutzer_id, aufgabe_id)
+    UNIQUE (wochentag, person_id, aufgabe_id)
 );
--- Mit plan_id: dieser Planeintrag an diesem Tag geht an benutzer_id (NULL =
+-- Mit plan_id: dieser Planeintrag an diesem Tag geht an person_id (NULL =
 -- entfaellt). Ohne plan_id: ein zusaetzlicher Dienst nur an diesem Tag.
 CREATE TABLE IF NOT EXISTS hd_abweichungen (
     id INTEGER PRIMARY KEY,
     datum TEXT NOT NULL,
     plan_id INTEGER REFERENCES hd_plan(id) ON DELETE CASCADE,
     aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
-    benutzer_id INTEGER REFERENCES benutzer(id) ON DELETE CASCADE
+    person_id INTEGER REFERENCES hd_personen(id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS hd_abweichung_plan ON hd_abweichungen(datum, plan_id) WHERE plan_id IS NOT NULL;
 -- In einer Pause entfallen die Dienste der Person
 CREATE TABLE IF NOT EXISTS hd_pausen (
     id INTEGER PRIMARY KEY,
-    benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
     von TEXT NOT NULL,
     bis TEXT NOT NULL
 );
 -- Erinnerungsanruf: Nummer und Uhrzeit je Person; tage = JSON
 -- {"0": "06:15"} fuer eine andere Uhrzeit an einem Wochentag
 CREATE TABLE IF NOT EXISTS hd_telefon (
-    benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
+    person_id INTEGER PRIMARY KEY REFERENCES hd_personen(id) ON DELETE CASCADE,
     nummer TEXT NOT NULL DEFAULT '',
     zeit TEXT NOT NULL DEFAULT '',
     tage TEXT NOT NULL DEFAULT '{}'
@@ -282,7 +289,7 @@ CREATE TABLE IF NOT EXISTS hd_telefon (
 CREATE TABLE IF NOT EXISTS hd_anrufe (
     id INTEGER PRIMARY KEY,
     datum TEXT NOT NULL,
-    benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
     -- 1 = zur eingestellten Zeit, 2 = 30 min spaeter ohne Taste 1, 0 = Testanruf
     versuch INTEGER NOT NULL,
     zeit INTEGER NOT NULL,
@@ -293,12 +300,12 @@ CREATE TABLE IF NOT EXISTS hd_anrufe (
 );
 CREATE TABLE IF NOT EXISTS hd_antraege (
     id INTEGER PRIMARY KEY,
-    benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
     -- umplanen: an datum uebernimmt an_id die aufgabe_id | pause: ab datum fuer tage
     art TEXT NOT NULL,
     datum TEXT NOT NULL,
     aufgabe_id INTEGER REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
-    an_id INTEGER REFERENCES benutzer(id) ON DELETE CASCADE,
+    an_id INTEGER REFERENCES hd_personen(id) ON DELETE CASCADE,
     tage INTEGER,
     -- offen | genehmigt | abgelehnt | zurueckgezogen
     status TEXT NOT NULL DEFAULT 'offen',
@@ -328,9 +335,43 @@ def db_schliessen(_fehler):
         conn.close()
 
 
+HD_TABELLEN_ALT = ("hd_plan", "hd_abweichungen", "hd_pausen", "hd_telefon", "hd_anrufe", "hd_antraege")
+
+
+def hd_umstellen(conn):
+    """0.12.0 plante mit den Zugaengen. Jetzt gibt es eigene Personen; die
+    Familien-Zugaenge werden zu Personen mit derselben Nummer, damit alle
+    Eintraege passen."""
+    conn.execute("PRAGMA foreign_keys = OFF")
+    for t in HD_TABELLEN_ALT:
+        conn.execute(f"ALTER TABLE {t} RENAME TO {t}_alt")
+    conn.execute("DROP INDEX IF EXISTS hd_abweichung_plan")
+    conn.executescript(SCHEMA)
+    benutzt = set()
+    for t in HD_TABELLEN_ALT:
+        benutzt |= {r[0] for r in conn.execute(f"SELECT benutzer_id FROM {t}_alt")}
+    benutzt |= {r[0] for r in conn.execute("SELECT an_id FROM hd_antraege_alt")}
+    namen = set()
+    for r in conn.execute("SELECT id, name, familie FROM benutzer ORDER BY id").fetchall():
+        if r[2] or r[0] in benutzt:
+            name = r[1] if r[1] not in namen else f"{r[1]} ({r[0]})"
+            namen.add(name)
+            conn.execute("INSERT INTO hd_personen (id, name, benutzer_id) VALUES (?, ?, ?)", (r[0], name, r[0]))
+    for t in HD_TABELLEN_ALT:
+        spalten = [r[1] for r in conn.execute(f"PRAGMA table_info({t}_alt)")]
+        neu = ", ".join("person_id" if x == "benutzer_id" else x for x in spalten)
+        conn.execute(f"INSERT INTO {t} ({neu}) SELECT {', '.join(spalten)} FROM {t}_alt")
+    for t in reversed(HD_TABELLEN_ALT):
+        conn.execute(f"DROP TABLE {t}_alt")
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
 def db_einrichten():
     conn = verbinden()
     conn.execute("PRAGMA journal_mode = WAL")
+    if "benutzer_id" in {r[1] for r in conn.execute("PRAGMA table_info(hd_plan)")}:
+        hd_umstellen(conn)
     conn.executescript(SCHEMA)
     # Datenbanken aus 0.1.0 nachruesten. Dort war die 2FA immer Pflicht:
     # wer sie eingerichtet hat (status nicht 'neu'), hat sie an.
@@ -1629,40 +1670,45 @@ def dienste_am(tag):
     Entfallene und pausierte bleiben drin (fuer die Verwaltung), markiert."""
     iso = tag.isoformat()
     abw = {r["plan_id"]: r for r in db().execute(
-        "SELECT id, plan_id, benutzer_id FROM hd_abweichungen WHERE datum = ? AND plan_id IS NOT NULL", (iso,))}
+        "SELECT id, plan_id, person_id FROM hd_abweichungen WHERE datum = ? AND plan_id IS NOT NULL", (iso,))}
     roh = []
-    for p in db().execute("SELECT id, benutzer_id, aufgabe_id FROM hd_plan WHERE wochentag = ?", (tag.weekday(),)):
+    for p in db().execute("SELECT id, person_id, aufgabe_id FROM hd_plan WHERE wochentag = ?", (tag.weekday(),)):
         a = abw.get(p["id"])
-        roh.append((a["benutzer_id"] if a else p["benutzer_id"], p["aufgabe_id"], p["id"], a["id"] if a else None))
-    for a in db().execute("SELECT id, benutzer_id, aufgabe_id FROM hd_abweichungen"
+        roh.append((a["person_id"] if a else p["person_id"], p["aufgabe_id"], p["id"], a["id"] if a else None))
+    for a in db().execute("SELECT id, person_id, aufgabe_id FROM hd_abweichungen"
                           " WHERE datum = ? AND plan_id IS NULL", (iso,)):
-        roh.append((a["benutzer_id"], a["aufgabe_id"], None, a["id"]))
+        roh.append((a["person_id"], a["aufgabe_id"], None, a["id"]))
     pausiert = {r[0] for r in db().execute(
-        "SELECT benutzer_id FROM hd_pausen WHERE von <= ? AND bis >= ?", (iso, iso))}
-    namen = {r["id"]: r["name"] for r in db().execute("SELECT id, name FROM benutzer")}
+        "SELECT person_id FROM hd_pausen WHERE von <= ? AND bis >= ?", (iso, iso))}
+    namen = {r["id"]: r["name"] for r in db().execute("SELECT id, name FROM hd_personen")}
     aufgaben = {r["id"]: r for r in db().execute("SELECT * FROM hd_aufgaben")}
     dienste = [{
-        "benutzer_id": bid, "name": namen.get(bid), "aufgabe_id": aid,
+        "person_id": pid, "name": namen.get(pid), "aufgabe_id": aid,
         "aufgabe": aufgaben[aid]["name"], "ansage": aufgaben[aid]["ansage"],
         "plan_id": plan_id, "abweichung_id": abw_id,
-        "entfaellt": bid is None, "pausiert": bid in pausiert,
-    } for bid, aid, plan_id, abw_id in roh]
+        "entfaellt": pid is None, "pausiert": pid in pausiert,
+    } for pid, aid, plan_id, abw_id in roh]
     dienste.sort(key=lambda d: (d["name"] or "", d["aufgabe"]))
     return dienste
 
 
-def pausiert_am(bid, tag):
-    return bool(db().execute("SELECT 1 FROM hd_pausen WHERE benutzer_id = ? AND von <= ? AND bis >= ?",
-                             (bid, tag.isoformat(), tag.isoformat())).fetchone())
+def pausiert_am(pid, tag):
+    return bool(db().execute("SELECT 1 FROM hd_pausen WHERE person_id = ? AND von <= ? AND bis >= ?",
+                             (pid, tag.isoformat(), tag.isoformat())).fetchone())
 
 
 def faellige_dienste(tag):
     return [d for d in dienste_am(tag) if not d["entfaellt"] and not d["pausiert"]]
 
 
-def hd_familie():
-    return [dict(r) for r in db().execute(
-        "SELECT id, name FROM benutzer WHERE familie = 1 AND status = 'aktiv' ORDER BY name")]
+def hd_personen():
+    return [dict(r) for r in db().execute("SELECT id, name FROM hd_personen ORDER BY name")]
+
+
+def person_von(b):
+    """Die Person im Hausdienst, mit der dieser Zugang verknuepft ist."""
+    r = db().execute("SELECT id FROM hd_personen WHERE benutzer_id = ?", (b["id"],)).fetchone()
+    return r["id"] if r else None
 
 
 def glocke(text, kennung):
@@ -1692,7 +1738,7 @@ def antrag_text(a):
 def antraege_laden(bedingung="1", werte=(), grenze=30):
     return [dict(r) | {"text": antrag_text(r)} for r in db().execute(
         "SELECT h.*, b.name, an.name AS an_name, g.name AS aufgabe FROM hd_antraege h"
-        " JOIN benutzer b ON b.id = h.benutzer_id LEFT JOIN benutzer an ON an.id = h.an_id"
+        " JOIN hd_personen b ON b.id = h.person_id LEFT JOIN hd_personen an ON an.id = h.an_id"
         " LEFT JOIN hd_aufgaben g ON g.id = h.aufgabe_id"
         f" WHERE {bedingung} ORDER BY h.status = 'offen' DESC, h.id DESC LIMIT ?", (*werte, grenze))]
 
@@ -1703,23 +1749,26 @@ def api_hausdienst(b):
     if not ist_familie(b):
         return fehler("Das dürfen nur Zugänge der Familie.", 403)
     tag = heute()
+    # Ohne verknuepfte Person sieht man nur, wer heute dran ist
+    pid = person_von(b)
     meine = []
-    for i in range(HD_MEIN_PLAN_TAGE):
+    for i in range(HD_MEIN_PLAN_TAGE if pid else 0):
         t = tag + datetime.timedelta(days=i)
         meine += [{"datum": t.isoformat(), "tag": datum_text(t), "aufgabe_id": d["aufgabe_id"],
                    "aufgabe": d["aufgabe"], "geaendert": d["abweichung_id"] is not None}
-                  for d in faellige_dienste(t) if d["benutzer_id"] == b["id"]]
+                  for d in faellige_dienste(t) if d["person_id"] == pid]
     return jsonify({
         "heute": datum_text(tag),
-        "dienste": [{"name": d["name"], "aufgabe": d["aufgabe"], "ich": d["benutzer_id"] == b["id"]}
+        "eingetragen": pid is not None,
+        "dienste": [{"name": d["name"], "aufgabe": d["aufgabe"], "ich": pid is not None and d["person_id"] == pid}
                     for d in faellige_dienste(tag)],
         "meine": meine,
         "pausen": [{"von": datum_text(datum_lesen(r["von"])), "bis": datum_text(datum_lesen(r["bis"]))}
-                   for r in db().execute("SELECT von, bis FROM hd_pausen WHERE benutzer_id = ? AND bis >= ?"
-                                         " ORDER BY von", (b["id"], tag.isoformat()))],
+                   for r in db().execute("SELECT von, bis FROM hd_pausen WHERE person_id = ? AND bis >= ?"
+                                         " ORDER BY von", (pid, tag.isoformat()))],
         "antraege": [{k: a[k] for k in ("id", "status", "text", "angelegt")}
-                     for a in antraege_laden("h.benutzer_id = ?", (b["id"],), 10)],
-        "familie": [f for f in hd_familie() if f["id"] != b["id"]],
+                     for a in antraege_laden("h.person_id = ?", (pid,), 10)],
+        "familie": [f for f in hd_personen() if f["id"] != pid] if pid else [],
         "pause_max": HD_PAUSE_MAX_TAGE,
     })
 
@@ -1729,36 +1778,39 @@ def api_hausdienst(b):
 def api_hausdienst_antrag(b):
     if not ist_familie(b):
         return fehler("Das dürfen nur Zugänge der Familie.", 403)
+    pid = person_von(b)
+    if not pid:
+        return fehler("Du stehst noch nicht im Hausdienst-Plan.", 403)
     e = json_eingabe()
     tag = datum_lesen(e.get("datum"))
     if not tag or not heute() <= tag <= heute() + datetime.timedelta(days=HD_ANTRAG_MAX_TAGE):
         return fehler("Bitte einen Tag ab heute und höchstens ein Jahr im Voraus wählen.")
-    if db().execute("SELECT COUNT(*) FROM hd_antraege WHERE benutzer_id = ? AND status = 'offen'",
-                    (b["id"],)).fetchone()[0] >= HD_OFFENE_ANTRAEGE_MAX:
+    if db().execute("SELECT COUNT(*) FROM hd_antraege WHERE person_id = ? AND status = 'offen'",
+                    (pid,)).fetchone()[0] >= HD_OFFENE_ANTRAEGE_MAX:
         return fehler("Du hast schon genug offene Anträge – warte erst die Entscheidung ab.")
     jetzt = int(time.time())
     if e.get("art") == "umplanen":
         aid, an_id = ganzzahl(e.get("aufgabe_id")), ganzzahl(e.get("an_id"))
-        if not any(d["benutzer_id"] == b["id"] and d["aufgabe_id"] == aid for d in faellige_dienste(tag)):
+        if not any(d["person_id"] == pid and d["aufgabe_id"] == aid for d in faellige_dienste(tag)):
             return fehler("Diesen Dienst hast du an dem Tag nicht.")
-        if an_id == b["id"] or an_id not in {f["id"] for f in hd_familie()}:
+        if an_id == pid or an_id not in {f["id"] for f in hd_personen()}:
             return fehler("Bitte wählen, wer aus der Familie übernimmt.")
         if pausiert_am(an_id, tag):
             return fehler("Wer übernehmen soll, hat an dem Tag Pause.")
-        if db().execute("SELECT 1 FROM hd_antraege WHERE benutzer_id = ? AND art = 'umplanen' AND datum = ?"
-                        " AND aufgabe_id = ? AND status = 'offen'", (b["id"], tag.isoformat(), aid)).fetchone():
+        if db().execute("SELECT 1 FROM hd_antraege WHERE person_id = ? AND art = 'umplanen' AND datum = ?"
+                        " AND aufgabe_id = ? AND status = 'offen'", (pid, tag.isoformat(), aid)).fetchone():
             return fehler("Dafür läuft schon ein Antrag.")
-        neu = db().execute("INSERT INTO hd_antraege (benutzer_id, art, datum, aufgabe_id, an_id, angelegt)"
-                           " VALUES (?, 'umplanen', ?, ?, ?, ?)", (b["id"], tag.isoformat(), aid, an_id, jetzt))
+        neu = db().execute("INSERT INTO hd_antraege (person_id, art, datum, aufgabe_id, an_id, angelegt)"
+                           " VALUES (?, 'umplanen', ?, ?, ?, ?)", (pid, tag.isoformat(), aid, an_id, jetzt))
     elif e.get("art") == "pause":
         tage = ganzzahl(e.get("tage"))
         if not tage or not 1 <= tage <= HD_PAUSE_MAX_TAGE:
             return fehler(f"Eine Pause dauert 1 bis {HD_PAUSE_MAX_TAGE} Tage.")
-        if db().execute("SELECT 1 FROM hd_antraege WHERE benutzer_id = ? AND art = 'pause' AND datum = ?"
-                        " AND status = 'offen'", (b["id"], tag.isoformat())).fetchone():
+        if db().execute("SELECT 1 FROM hd_antraege WHERE person_id = ? AND art = 'pause' AND datum = ?"
+                        " AND status = 'offen'", (pid, tag.isoformat())).fetchone():
             return fehler("Dafür läuft schon ein Antrag.")
-        neu = db().execute("INSERT INTO hd_antraege (benutzer_id, art, datum, tage, angelegt)"
-                           " VALUES (?, 'pause', ?, ?, ?)", (b["id"], tag.isoformat(), tage, jetzt))
+        neu = db().execute("INSERT INTO hd_antraege (person_id, art, datum, tage, angelegt)"
+                           " VALUES (?, 'pause', ?, ?, ?)", (pid, tag.isoformat(), tage, jetzt))
     else:
         return fehler("Unbekannte Art von Antrag.")
     db().commit()
@@ -1772,8 +1824,8 @@ def api_hausdienst_antrag(b):
 @braucht("voll")
 def api_hausdienst_zurueckziehen(b, aid):
     n = db().execute("UPDATE hd_antraege SET status = 'zurueckgezogen', entschieden = ?"
-                     " WHERE id = ? AND benutzer_id = ? AND status = 'offen'",
-                     (int(time.time()), aid, b["id"])).rowcount
+                     " WHERE id = ? AND person_id = ? AND status = 'offen'",
+                     (int(time.time()), aid, person_von(b))).rowcount
     if not n:
         return fehler("Diesen offenen Antrag gibt es nicht.", 404)
     db().commit()
@@ -1827,7 +1879,7 @@ def anruf_menue(ansage, kennung):
     return stufe
 
 
-def anrufen(bid, versuch, ansage, nummer, tag, zeitpunkt):
+def anrufen(pid, versuch, ansage, nummer, tag, zeitpunkt):
     kennung = secrets.token_hex(12)
     fehl = None
     try:
@@ -1839,8 +1891,8 @@ def anrufen(bid, versuch, ansage, nummer, tag, zeitpunkt):
         # Kein neuer Versuch im Halbminutentakt - der zweite Anruf holt es nach
         fehl = str(e)[:200]
         log.warning("Hausdienst-Anruf fehlgeschlagen: %s", e)
-    db().execute("INSERT INTO hd_anrufe (datum, benutzer_id, versuch, zeit, kennung, fehler) VALUES (?, ?, ?, ?, ?, ?)",
-                 (tag.isoformat(), bid, versuch, int(zeitpunkt), kennung, fehl))
+    db().execute("INSERT INTO hd_anrufe (datum, person_id, versuch, zeit, kennung, fehler) VALUES (?, ?, ?, ?, ?, ?)",
+                 (tag.isoformat(), pid, versuch, int(zeitpunkt), kennung, fehl))
     db().commit()
     return fehl
 
@@ -1863,15 +1915,13 @@ def anrufe_pruefen(jetzt=None):
         return
     je_person = {}
     for d in faellige_dienste(tag):
-        je_person.setdefault(d["benutzer_id"], []).append(d)
-    for bid, dienste in sorted(je_person.items()):
-        # Gesperrt oder nicht mehr in der Familie: kein Anruf
-        t = db().execute("SELECT t.* FROM hd_telefon t JOIN benutzer b ON b.id = t.benutzer_id"
-                         " WHERE t.benutzer_id = ? AND b.familie = 1 AND b.status = 'aktiv'", (bid,)).fetchone()
+        je_person.setdefault(d["person_id"], []).append(d)
+    for pid, dienste in sorted(je_person.items()):
+        t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone()
         if not t or not t["nummer"] or not anrufzeit(t, tag):
             continue
-        bisher = db().execute("SELECT * FROM hd_anrufe WHERE datum = ? AND benutzer_id = ? AND versuch > 0"
-                              " ORDER BY versuch", (tag.isoformat(), bid)).fetchall()
+        bisher = db().execute("SELECT * FROM hd_anrufe WHERE datum = ? AND person_id = ? AND versuch > 0"
+                              " ORDER BY versuch", (tag.isoformat(), pid)).fetchall()
         if not bisher:
             faellig, versuch = datetime.datetime.combine(tag, datetime.time.fromisoformat(anrufzeit(t, tag))), 1
         elif len(bisher) == 1 and not bisher[0]["bestaetigt"]:
@@ -1880,7 +1930,7 @@ def anrufe_pruefen(jetzt=None):
         else:
             continue
         if faellig <= jetzt < faellig + datetime.timedelta(seconds=HD_ANRUF_FENSTER_S):
-            anrufen(bid, versuch, ansage_bauen(dienste[0]["name"], [d["ansage"] for d in dienste], tag), t["nummer"],
+            anrufen(pid, versuch, ansage_bauen(dienste[0]["name"], [d["ansage"] for d in dienste], tag), t["nummer"],
                     tag, jetzt.timestamp())
             return  # der naechste fruehestens nach HD_ANRUF_ABSTAND_S
 
@@ -2087,16 +2137,21 @@ def api_admin_hausdienst():
     tage = [tag + datetime.timedelta(days=i) for i in range(HD_VERWALTUNG_TAGE)]
     return jsonify({
         "wochentage": WOCHENTAGE,
-        "personen": hd_familie(),
+        "personen": [dict(r) for r in db().execute(
+            "SELECT p.id, p.name, p.benutzer_id, b.name AS zugang FROM hd_personen p"
+            " LEFT JOIN benutzer b ON b.id = p.benutzer_id ORDER BY p.name")],
+        # Verknuepfen lassen sich die Zugaenge mit Haken "Familie"
+        "zugaenge": [dict(r) for r in db().execute(
+            "SELECT id, name, status FROM benutzer WHERE familie = 1 ORDER BY name")],
         "aufgaben": [dict(r) for r in db().execute("SELECT * FROM hd_aufgaben ORDER BY name")],
         "plan": [dict(r) for r in db().execute(
-            "SELECT p.id, p.wochentag, p.benutzer_id, b.name, p.aufgabe_id, a.name AS aufgabe FROM hd_plan p"
-            " JOIN benutzer b ON b.id = p.benutzer_id JOIN hd_aufgaben a ON a.id = p.aufgabe_id"
+            "SELECT p.id, p.wochentag, p.person_id, b.name, p.aufgabe_id, a.name AS aufgabe FROM hd_plan p"
+            " JOIN hd_personen b ON b.id = p.person_id JOIN hd_aufgaben a ON a.id = p.aufgabe_id"
             " ORDER BY p.wochentag, b.name, a.name")],
         "tage": [{"datum": t.isoformat(), "tag": datum_text(t), "dienste": dienste_am(t)} for t in tage],
         "pausen": [dict(r) | {"text": f"{datum_text(datum_lesen(r['von']))} bis {datum_text(datum_lesen(r['bis']))}"}
                    for r in db().execute(
-                       "SELECT p.id, p.von, p.bis, b.name FROM hd_pausen p JOIN benutzer b ON b.id = p.benutzer_id"
+                       "SELECT p.id, p.von, p.bis, b.name FROM hd_pausen p JOIN hd_personen b ON b.id = p.person_id"
                        " WHERE p.bis >= ? ORDER BY p.von", (tag.isoformat(),))],
         "antraege": antraege_laden(),
         "anrufe": {
@@ -2106,22 +2161,44 @@ def api_admin_hausdienst():
             "standard": HD_ANSAGE_STANDARD,
             "sip_addon": SIP_ADDON, "sip_konto": SIP_KONTO, "sip_server": SIP_SERVER,
         },
-        "telefon": {r["benutzer_id"]: {"nummer": r["nummer"], "zeit": r["zeit"], "tage": json.loads(r["tage"] or "{}")}
+        "telefon": {r["person_id"]: {"nummer": r["nummer"], "zeit": r["zeit"], "tage": json.loads(r["tage"] or "{}")}
                     for r in db().execute("SELECT * FROM hd_telefon")},
         "anrufliste": [dict(r) for r in db().execute(
             "SELECT a.datum, a.versuch, a.zeit, a.bestaetigt, a.fehler, b.name FROM hd_anrufe a"
-            " JOIN benutzer b ON b.id = a.benutzer_id ORDER BY a.id DESC LIMIT 30")],
+            " JOIN hd_personen b ON b.id = a.person_id ORDER BY a.id DESC LIMIT 30")],
     })
 
 
-def familie_id(wert):
-    bid = ganzzahl(wert)
-    return bid if bid in {f["id"] for f in hd_familie()} else None
+def person_id(wert):
+    pid = ganzzahl(wert)
+    return pid if pid and db().execute("SELECT 1 FROM hd_personen WHERE id = ?", (pid,)).fetchone() else None
 
 
 def aufgabe_id(wert):
     aid = ganzzahl(wert)
     return aid if aid and db().execute("SELECT 1 FROM hd_aufgaben WHERE id = ?", (aid,)).fetchone() else None
+
+
+@app.post("/api/admin/hausdienst/person")
+@nur_ingress
+def api_admin_hd_person():
+    """Eine Person anlegen oder aendern, optional mit einem Zugang verknuepft."""
+    e = json_eingabe()
+    name = str(e.get("name", "")).strip()[:40]
+    bid = ganzzahl(e.get("benutzer_id")) if e.get("benutzer_id") not in (None, "") else None
+    if not name:
+        return fehler("Bitte einen Namen angeben.")
+    if bid and not db().execute("SELECT 1 FROM benutzer WHERE id = ? AND familie = 1", (bid,)).fetchone():
+        return fehler("Verknüpfen lassen sich nur Zugänge mit Haken „Familie“.")
+    try:
+        if e.get("id"):
+            db().execute("UPDATE hd_personen SET name = ?, benutzer_id = ? WHERE id = ?", (name, bid, ganzzahl(e["id"])))
+        else:
+            db().execute("INSERT INTO hd_personen (name, benutzer_id) VALUES (?, ?)", (name, bid))
+    except sqlite3.IntegrityError:
+        return fehler("Diesen Namen oder diesen Zugang gibt es im Hausdienst schon.")
+    db().commit()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/admin/hausdienst/aufgabe")
@@ -2146,11 +2223,11 @@ def api_admin_hd_aufgabe():
 @nur_ingress
 def api_admin_hd_plan():
     e = json_eingabe()
-    wochentag, bid, aid = ganzzahl(e.get("wochentag")), familie_id(e.get("benutzer_id")), aufgabe_id(e.get("aufgabe_id"))
-    if wochentag not in range(7) or not bid or not aid:
+    wochentag, pid, aid = ganzzahl(e.get("wochentag")), person_id(e.get("person_id")), aufgabe_id(e.get("aufgabe_id"))
+    if wochentag not in range(7) or not pid or not aid:
         return fehler("Bitte Tag, Person und Aufgabe wählen.")
-    db().execute("INSERT OR IGNORE INTO hd_plan (wochentag, benutzer_id, aufgabe_id) VALUES (?, ?, ?)",
-                 (wochentag, bid, aid))
+    db().execute("INSERT OR IGNORE INTO hd_plan (wochentag, person_id, aufgabe_id) VALUES (?, ?, ?)",
+                 (wochentag, pid, aid))
     db().commit()
     return jsonify({"ok": True})
 
@@ -2159,46 +2236,46 @@ def api_admin_hd_plan():
 @nur_ingress
 def api_admin_hd_tag():
     """Einen einzelnen Tag umplanen: einen Planeintrag an jemand anderen
-    geben oder ausfallen lassen (benutzer_id leer) - oder ohne plan_id einen
+    geben oder ausfallen lassen (person_id leer) - oder ohne plan_id einen
     zusaetzlichen Dienst nur fuer diesen Tag eintragen."""
     e = json_eingabe()
     tag = datum_lesen(e.get("datum"))
     if not tag:
         return fehler("Bitte ein Datum angeben.")
-    bid = familie_id(e.get("benutzer_id"))
-    if e.get("benutzer_id") not in (None, "") and not bid:
-        return fehler("Diese Person gehört nicht zur Familie.")
+    pid = person_id(e.get("person_id"))
+    if e.get("person_id") not in (None, "") and not pid:
+        return fehler("Diese Person gibt es im Hausdienst nicht.")
     if e.get("plan_id"):
         p = db().execute("SELECT * FROM hd_plan WHERE id = ?", (ganzzahl(e["plan_id"]),)).fetchone()
         if not p or p["wochentag"] != tag.weekday():
             return fehler("Dieser Planeintrag gilt an dem Tag nicht.")
-        abweichung_setzen(tag, p, bid)
+        abweichung_setzen(tag, p, pid)
     else:
         aid = aufgabe_id(e.get("aufgabe_id"))
-        if not bid or not aid:
+        if not pid or not aid:
             return fehler("Bitte Person und Aufgabe wählen.")
-        db().execute("INSERT INTO hd_abweichungen (datum, aufgabe_id, benutzer_id) VALUES (?, ?, ?)",
-                     (tag.isoformat(), aid, bid))
+        db().execute("INSERT INTO hd_abweichungen (datum, aufgabe_id, person_id) VALUES (?, ?, ?)",
+                     (tag.isoformat(), aid, pid))
     db().commit()
     return jsonify({"ok": True})
 
 
-def abweichung_setzen(tag, p, bid):
+def abweichung_setzen(tag, p, pid):
     db().execute("DELETE FROM hd_abweichungen WHERE datum = ? AND plan_id = ?", (tag.isoformat(), p["id"]))
     # Wieder die Person aus dem Plan: dann ist es keine Abweichung mehr
-    if bid != p["benutzer_id"]:
-        db().execute("INSERT INTO hd_abweichungen (datum, plan_id, aufgabe_id, benutzer_id) VALUES (?, ?, ?, ?)",
-                     (tag.isoformat(), p["id"], p["aufgabe_id"], bid))
+    if pid != p["person_id"]:
+        db().execute("INSERT INTO hd_abweichungen (datum, plan_id, aufgabe_id, person_id) VALUES (?, ?, ?, ?)",
+                     (tag.isoformat(), p["id"], p["aufgabe_id"], pid))
 
 
 @app.post("/api/admin/hausdienst/pause")
 @nur_ingress
 def api_admin_hd_pause():
     e = json_eingabe()
-    bid, von, bis = familie_id(e.get("benutzer_id")), datum_lesen(e.get("von")), datum_lesen(e.get("bis"))
-    if not bid or not von or not bis or bis < von:
+    pid, von, bis = person_id(e.get("person_id")), datum_lesen(e.get("von")), datum_lesen(e.get("bis"))
+    if not pid or not von or not bis or bis < von:
         return fehler("Bitte Person und einen gültigen Zeitraum angeben.")
-    db().execute("INSERT INTO hd_pausen (benutzer_id, von, bis) VALUES (?, ?, ?)", (bid, von.isoformat(), bis.isoformat()))
+    db().execute("INSERT INTO hd_pausen (person_id, von, bis) VALUES (?, ?, ?)", (pid, von.isoformat(), bis.isoformat()))
     db().commit()
     return jsonify({"ok": True})
 
@@ -2221,12 +2298,12 @@ def api_admin_hd_anrufe():
 @nur_ingress
 def api_admin_hd_telefon():
     e = json_eingabe()
-    bid = familie_id(e.get("benutzer_id"))
+    pid = person_id(e.get("person_id"))
     nummer = re.sub(r"[\s/()-]", "", str(e.get("nummer", "")))
     zeit = str(e.get("zeit", "")).strip()
     tage = e.get("tage") or {}
-    if not bid:
-        return fehler("Diese Person gehört nicht zur Familie.")
+    if not pid:
+        return fehler("Diese Person gibt es im Hausdienst nicht.")
     if nummer and not NUMMER_MUSTER.match(nummer):
         return fehler("Die Telefonnummer bitte nur aus Ziffern, z. B. 01701234567.")
     if not isinstance(tage, dict) or any(k not in {str(i) for i in range(7)} for k in tage):
@@ -2234,9 +2311,9 @@ def api_admin_hd_telefon():
     tage = {k: str(v).strip() for k, v in tage.items() if str(v).strip()}
     if any(not UHRZEIT_MUSTER.match(z) for z in [zeit, *tage.values()] if z):
         return fehler("Uhrzeiten bitte als HH:MM, z. B. 06:30.")
-    db().execute("INSERT INTO hd_telefon (benutzer_id, nummer, zeit, tage) VALUES (?, ?, ?, ?)"
-                 " ON CONFLICT(benutzer_id) DO UPDATE SET nummer = excluded.nummer, zeit = excluded.zeit,"
-                 " tage = excluded.tage", (bid, nummer, zeit, json.dumps(tage, sort_keys=True)))
+    db().execute("INSERT INTO hd_telefon (person_id, nummer, zeit, tage) VALUES (?, ?, ?, ?)"
+                 " ON CONFLICT(person_id) DO UPDATE SET nummer = excluded.nummer, zeit = excluded.zeit,"
+                 " tage = excluded.tage", (pid, nummer, zeit, json.dumps(tage, sort_keys=True)))
     db().commit()
     return jsonify({"ok": True})
 
@@ -2248,24 +2325,24 @@ def api_admin_hd_testanruf():
     ansteht, mit dem naechsten."""
     if not SIP_ADDON or not SIP_SERVER:
         return fehler("ha-sip ist in den Optionen nicht eingestellt.", 404)
-    bid = familie_id(json_eingabe().get("benutzer_id"))
-    t = db().execute("SELECT * FROM hd_telefon WHERE benutzer_id = ?", (bid,)).fetchone() if bid else None
+    pid = person_id(json_eingabe().get("person_id"))
+    t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone() if pid else None
     if not t or not t["nummer"]:
         return fehler("Für diese Person ist keine Telefonnummer eingetragen.")
     tag = heute()
     for i in range(HD_MEIN_PLAN_TAGE):
-        dienste = [d for d in faellige_dienste(tag + datetime.timedelta(days=i)) if d["benutzer_id"] == bid]
+        dienste = [d for d in faellige_dienste(tag + datetime.timedelta(days=i)) if d["person_id"] == pid]
         if dienste:
             break
     else:
         return fehler("Diese Person hat in den nächsten vier Wochen keinen Dienst.")
     ansage = ansage_bauen(dienste[0]["name"], [d["ansage"] for d in dienste], tag + datetime.timedelta(days=i))
-    if (fehl := anrufen(bid, 0, ansage, t["nummer"], tag, time.time())):
+    if (fehl := anrufen(pid, 0, ansage, t["nummer"], tag, time.time())):
         return fehler(f"Anruf ging nicht raus: {fehl}", 502)
     return jsonify({"ok": True, "ansage": ansage})
 
 
-HD_TABELLEN = {"aufgabe": "hd_aufgaben", "plan": "hd_plan", "tag": "hd_abweichungen", "pause": "hd_pausen"}
+HD_TABELLEN = {"person": "hd_personen", "aufgabe": "hd_aufgaben", "plan": "hd_plan", "tag": "hd_abweichungen", "pause": "hd_pausen"}
 
 
 @app.post("/api/admin/hausdienst/<art>/<int:eid>/loeschen")
@@ -2290,11 +2367,11 @@ def api_admin_hd_antrag(aid, entscheidung):
     tag = datum_lesen(a["datum"])
     if entscheidung == "genehmigen":
         if a["art"] == "pause":
-            db().execute("INSERT INTO hd_pausen (benutzer_id, von, bis) VALUES (?, ?, ?)",
-                         (a["benutzer_id"], a["datum"], (tag + datetime.timedelta(days=a["tage"] - 1)).isoformat()))
+            db().execute("INSERT INTO hd_pausen (person_id, von, bis) VALUES (?, ?, ?)",
+                         (a["person_id"], a["datum"], (tag + datetime.timedelta(days=a["tage"] - 1)).isoformat()))
         else:
             dienst = next((d for d in faellige_dienste(tag)
-                           if d["benutzer_id"] == a["benutzer_id"] and d["aufgabe_id"] == a["aufgabe_id"]), None)
+                           if d["person_id"] == a["person_id"] and d["aufgabe_id"] == a["aufgabe_id"]), None)
             if not dienst:
                 return fehler("Dieser Dienst steht so nicht mehr im Plan – bitte den Tag selbst umplanen.")
             if pausiert_am(a["an_id"], tag):
@@ -2303,7 +2380,7 @@ def api_admin_hd_antrag(aid, entscheidung):
                 abweichung_setzen(tag, db().execute("SELECT * FROM hd_plan WHERE id = ?", (dienst["plan_id"],)).fetchone(),
                                   a["an_id"])
             else:
-                db().execute("UPDATE hd_abweichungen SET benutzer_id = ? WHERE id = ?", (a["an_id"], dienst["abweichung_id"]))
+                db().execute("UPDATE hd_abweichungen SET person_id = ? WHERE id = ?", (a["an_id"], dienst["abweichung_id"]))
     db().execute("UPDATE hd_antraege SET status = ?, entschieden = ? WHERE id = ?",
                  ("genehmigt" if entscheidung == "genehmigen" else "abgelehnt", int(time.time()), aid))
     db().commit()

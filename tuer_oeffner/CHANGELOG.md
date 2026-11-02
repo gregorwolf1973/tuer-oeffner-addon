@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.12.1
+
+- Hausdienst: **Personen** legst du jetzt selbst an, auch ohne Zugang zum
+  Türöffner. Angerufen wird jede Person mit Telefonnummer. Wer einen Zugang
+  mit Haken „Familie“ hat, lässt sich mit seiner Person verknüpfen – auch
+  wenn der Zugang noch nicht freigegeben ist. Nach der Freigabe sieht er
+  seinen Plan in der App und kann Anträge stellen. Bisherige Einträge werden beim Start
+  übernommen: Jeder Zugang mit Haken „Familie“ wird zu einer Person.
+- Verwaltung: Meldungen (z. B. „Bitte Person und einen gültigen Zeitraum
+  angeben“) bleiben oben im Bild stehen, auch wenn du weiter unten beim
+  Hausdienst arbeitest. Vorher erschienen sie unbemerkt am Seitenanfang.
+- Die Auswahl „Wer?“ bei den Pausen springt nach dem Speichern anderer
+  Hausdienst-Einträge nicht mehr auf leer zurück.
+
 ## 0.12.0
 
 - Neu: **Hausdienst** für die Familie. In der Verwaltung legst du Aufgaben an

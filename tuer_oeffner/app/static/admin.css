@@ -134,3 +134,5 @@ tr:last-child td { border-bottom: 0; }
 .hd-telefon input[type="time"] { width: 92px; }
 .hd-telefon td:last-child { white-space: nowrap; }
 .hd-telefon td:last-child .knopf + .knopf { margin-left: 4px; }
+/* Meldungen bleiben sichtbar, auch weit unten auf der Seite */
+#meldung { position: sticky; top: 8px; z-index: 20; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }

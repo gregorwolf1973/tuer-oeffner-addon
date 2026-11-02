@@ -63,8 +63,11 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 - **Verwaltung** nur hier in Home Assistant (Seitenleiste „Türöffner“):
   jeder Zugang als Karte mit Schaltern für „Aus der Ferne“ und „Familie“,
   dazu die **Warmwasser-Vorgabe** (Zieltemperatur beim Aufheizen) zum
-  Einstellen und die Planung des **Hausdienstes** (Aufgaben, Wochenplan,
-  einzelne Tage, Pausen, Anträge, Telefonnummern und Anrufzeiten). Außerdem:
+  Einstellen und die Planung des **Hausdienstes** (Personen, Aufgaben,
+  Wochenplan, einzelne Tage, Pausen, Anträge, Telefonnummern und
+  Anrufzeiten). Im Hausdienst planst du jede Person, auch ohne Zugang zum
+  Türöffner; wer einen Zugang mit Haken „Familie“ hat und damit verknüpft
+  ist, sieht seinen Plan in der App und kann Anträge stellen. Außerdem:
   freigeben, Fern-Recht, Familie, sperren, 2FA zurücksetzen, löschen, Protokoll und
   ein Knopf zum Testen. Aus dem Internet ist die Verwaltung nicht
   erreichbar.

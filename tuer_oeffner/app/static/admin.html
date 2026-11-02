@@ -52,6 +52,15 @@
       <div id="hd-anrufe" class="hd-anrufe"></div>
       <div class="hd-zwei">
         <div>
+          <h3>Personen <small class="leise">mit Zugang sehen sie ihren Plan in der App</small></h3>
+          <div id="hd-personen" class="hd-zeilen"></div>
+          <form id="hd-person-neu" class="hd-zeile">
+            <input name="name" placeholder="Name, z. B. Sven" maxlength="40" required>
+            <select name="benutzer_id" aria-label="Zugang"></select>
+            <button class="knopf klein">Hinzufügen</button>
+          </form>
+        </div>
+        <div>
           <h3>Aufgaben</h3>
           <div id="hd-aufgaben" class="hd-zeilen"></div>
           <form id="hd-aufgabe-neu" class="hd-zeile">
@@ -64,7 +73,7 @@
           <h3>Pausen</h3>
           <div id="hd-pausen" class="hd-zeilen"></div>
           <form id="hd-pause-neu" class="hd-zeile">
-            <select name="benutzer_id" aria-label="Wer" required></select>
+            <select name="person_id" aria-label="Wer" required></select>
             <input type="date" name="von" aria-label="Von" required>
             <input type="date" name="bis" aria-label="Bis" required>
             <button class="knopf klein">Eintragen</button>

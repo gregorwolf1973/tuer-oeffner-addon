@@ -872,7 +872,9 @@ function hausdienstZeigen(d) {
   pausen.textContent = "Pause: " + d.pausen.map((p) => `${p.von} bis ${p.bis}`).join(" · ");
   $("#hd-meine").replaceChildren(...(d.meine.length
     ? d.meine.map((x) => hdEintrag(`${x.tag} ${x.aufgabe}`, x.geaendert ? "umgeplant" : ""))
-    : [hdEintrag("In den nächsten vier Wochen hast du keinen Dienst.", "", "leise")]));
+    : [hdEintrag(d.eingetragen ? "In den nächsten vier Wochen hast du keinen Dienst."
+      : "Du stehst noch nicht im Hausdienst-Plan.", "", "leise")]));
+  $("#hd-pause-block").hidden = !d.eingetragen;
   // Die Auswahl nicht unter den Fingern austauschen
   const block = $("#hd-umplanen-block");
   if (!block.open) {
