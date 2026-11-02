@@ -276,3 +276,6 @@ input:focus, select:focus { outline: 2px solid var(--akzent-hell); outline-offse
 .hd-antrag { margin-top: 12px; }
 .hd-antrag summary { cursor: pointer; color: var(--akzent-hell); }
 .hd-antrag .formular { margin-top: 10px; }
+.hd-zeiten { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.hd-zeiten label { font-size: .85rem; }
+.hd-liste .antrag.offen .knopf + .knopf { margin-left: 6px; }

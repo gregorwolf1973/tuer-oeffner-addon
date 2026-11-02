@@ -63,7 +63,7 @@ ZUSTAENDE = {}
 @pytest.fixture(autouse=True)
 def sauber():
     conn = server.verbinden()
-    conn.executescript("DELETE FROM hd_anrufe; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
+    conn.executescript("DELETE FROM hd_anfragen; DELETE FROM hd_anrufe; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
                        " DELETE FROM hd_plan; DELETE FROM hd_aufgaben; DELETE FROM hd_personen;"
                        " DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;"
                        " DELETE FROM einstellungen;")
@@ -1087,29 +1087,48 @@ def test_hausdienst_nur_fuer_die_familie(hausdienst):
     assert gast.get("/api/admin/hausdienst").status_code == 404
 
 
-def test_umplanen_beantragen_und_genehmigen(hausdienst, ha):
-    anna, admin, auf, ids = hausdienst["anna"], hausdienst["admin"], hausdienst["auf"], hausdienst["ids"]
-    antrag = {"art": "umplanen", "datum": "2026-11-09", "aufgabe_id": auf["Küche"], "an_id": ids["bert"]}
+def test_tausch_anfragen_und_in_der_app_annehmen(hausdienst, ha):
+    anna, bert, admin, auf, ids = (hausdienst[k] for k in ("anna", "bert", "admin", "auf", "ids"))
+    anfrage = {"datum": "2026-11-09", "aufgabe_id": auf["Küche"], "an_id": ids["bert"]}
     # Einen Dienst, den man nicht hat, kann man nicht abgeben
-    assert post(anna, "/api/hausdienst/antrag", antrag | {"datum": "2026-11-10"}).status_code == 400
-    assert post(anna, "/api/hausdienst/antrag", antrag | {"an_id": ids["anna"]}).status_code == 400
-    assert post(anna, "/api/hausdienst/antrag", antrag | {"datum": "2026-10-26"}).status_code == 400
-    assert post(anna, "/api/hausdienst/antrag", antrag).status_code == 200
-    assert post(anna, "/api/hausdienst/antrag", antrag).status_code == 400  # schon beantragt
-    glocke = [d for _, p, d in ha if p == "/services/persistent_notification/create"]
-    assert glocke and "Küche am Montag, 9.11. übernimmt Bert" in glocke[-1]["message"]
+    assert post(anna, "/api/hausdienst/anfrage", anfrage | {"datum": "2026-11-10"}).status_code == 400
+    assert post(anna, "/api/hausdienst/anfrage", anfrage | {"an_id": ids["anna"]}).status_code == 400
+    assert post(anna, "/api/hausdienst/anfrage", anfrage | {"datum": "2026-10-26"}).status_code == 400
+    assert post(anna, "/api/hausdienst/anfrage", anfrage).status_code == 200
+    assert post(anna, "/api/hausdienst/anfrage", anfrage).status_code == 400  # laeuft schon
+    # Der alte Umplanen-Antrag an die Verwaltung ist ersetzt
+    assert post(anna, "/api/hausdienst/antrag", anfrage | {"art": "umplanen"}).status_code == 400
 
-    a = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["antraege"][0]
-    assert a["status"] == "offen"
-    assert post(admin, f"/api/admin/hausdienst/antrag/{a['id']}/genehmigen", environ_base=INGRESS).status_code == 200
-    assert any(p == "/services/persistent_notification/dismiss" and d["notification_id"] == glocke[-1]["notification_id"]
-               for _, p, d in ha)
+    (a,) = bert.get("/api/hausdienst").json["anfragen_an_mich"]
+    assert a["von_name"] == "Anna" and a["dienst"] == "Küche am Montag, 9.11."
+    assert anna.get("/api/hausdienst").json["meine_anfragen"][0]["status"] == "offen"
+    # Nur wer gefragt wurde, antwortet
+    assert post(anna, f"/api/hausdienst/anfrage/{a['id']}/ja").status_code == 404
+    assert post(bert, f"/api/hausdienst/anfrage/{a['id']}/zurueckziehen").status_code == 404
+    assert post(bert, f"/api/hausdienst/anfrage/{a['id']}/ja").status_code == 200
+    glocke = [d for _, p, d in ha if p == "/services/persistent_notification/create"]
+    assert "Tausch: Bert übernimmt Küche am Montag, 9.11. von Anna." in glocke[-1]["message"]
     assert "2026-11-09" not in [m["datum"] for m in anna.get("/api/hausdienst").json["meine"]]
-    bert = hausdienst["bert"].get("/api/hausdienst").json["meine"]
     assert {"datum": "2026-11-09", "aufgabe": "Küche", "geaendert": True} in [
-        {k: m[k] for k in ("datum", "aufgabe", "geaendert")} for m in bert]
-    # Ein zweites Mal entscheiden geht nicht
-    assert post(admin, f"/api/admin/hausdienst/antrag/{a['id']}/ablehnen", environ_base=INGRESS).status_code == 404
+        {k: m[k] for k in ("datum", "aufgabe", "geaendert")} for m in bert.get("/api/hausdienst").json["meine"]]
+    assert anna.get("/api/hausdienst").json["meine_anfragen"][0]["status"] == "ja"
+    assert post(bert, f"/api/hausdienst/anfrage/{a['id']}/nein").status_code == 400  # schon beantwortet
+    assert admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["anfragen"][0]["status"] == "ja"
+
+
+def test_tausch_ablehnen_zurueckziehen_und_ablaufen(hausdienst, monkeypatch):
+    anna, bert, auf, ids = (hausdienst[k] for k in ("anna", "bert", "auf", "ids"))
+    for datum in ("2026-11-09", "2026-11-16", "2026-11-23"):
+        post(anna, "/api/hausdienst/anfrage", {"datum": datum, "aufgabe_id": auf["Küche"], "an_id": ids["bert"]})
+    gefragt = bert.get("/api/hausdienst").json["anfragen_an_mich"]
+    assert post(bert, f"/api/hausdienst/anfrage/{gefragt[-1]['id']}/nein").status_code == 200
+    assert post(anna, f"/api/hausdienst/anfrage/{gefragt[-2]['id']}/zurueckziehen").status_code == 200
+    assert len(bert.get("/api/hausdienst").json["anfragen_an_mich"]) == 1
+    # Ist der Tag vorbei, verschwindet die unbeantwortete Anfrage
+    monkeypatch.setattr(server, "heute", lambda: MONTAG + server.datetime.timedelta(days=22))
+    assert bert.get("/api/hausdienst").json["anfragen_an_mich"] == []
+    assert anna.get("/api/hausdienst").json["meine_anfragen"] == []
+    assert post(bert, f"/api/hausdienst/anfrage/{gefragt[0]['id']}/ja").status_code == 400
 
 
 def test_pause_beantragen_und_genehmigen(hausdienst):
@@ -1305,8 +1324,7 @@ def test_antrag_grenzen(hausdienst):
     # Wer Pause hat, kann nichts uebernehmen
     post(admin, "/api/admin/hausdienst/pause", {"person_id": ids["bert"], "von": "2026-11-09", "bis": "2026-11-09"},
          environ_base=INGRESS)
-    r = post(anna, "/api/hausdienst/antrag", {"art": "umplanen", "datum": "2026-11-09", "aufgabe_id": auf["Küche"],
-                                              "an_id": ids["bert"]})
+    r = post(anna, "/api/hausdienst/anfrage", {"datum": "2026-11-09", "aufgabe_id": auf["Küche"], "an_id": ids["bert"]})
     assert r.status_code == 400 and "Pause" in r.json["fehler"]
 
 
@@ -1321,13 +1339,18 @@ def test_person_ohne_zugang_planen_und_anrufen(anrufe, ha):
          environ_base=INGRESS)
     post(admin, "/api/admin/hausdienst/telefon", {"person_id": sven["id"], "nummer": "0172999", "zeit": "07:15"},
          environ_base=INGRESS)
-    # Anna kann einen Dienst auch an jemanden ohne Zugang abgeben
-    r = post(anrufe["anna"], "/api/hausdienst/antrag", {"art": "umplanen", "datum": "2026-11-09",
-                                                         "aufgabe_id": auf["Küche"], "an_id": sven["id"]})
+    # Anna kann auch jemanden ohne Zugang fragen (der wird angerufen) -
+    # nur wer weder Nummer noch Zugang hat, ist nicht erreichbar
+    post(admin, "/api/admin/hausdienst/person", {"name": "Otto"}, environ_base=INGRESS)
+    otto = next(p["id"] for p in admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["personen"]
+                if p["name"] == "Otto")
+    tausch = {"datum": "2026-11-09", "aufgabe_id": auf["Küche"]}
+    assert post(anrufe["anna"], "/api/hausdienst/anfrage", tausch | {"an_id": otto}).status_code == 400
+    r = post(anrufe["anna"], "/api/hausdienst/anfrage", tausch | {"an_id": sven["id"]})
     assert r.status_code == 200, r.json
     pruefen(um(7, 15))
     pruefen(um(7, 18))
-    assert sorted(a["number"] for a in waehlen(ha)) == ["sip:01701234567@192.168.178.1", "sip:0172999@192.168.178.1"]
+    assert [a["number"] for a in waehlen(ha)][:2] == ["sip:01701234567@192.168.178.1", "sip:0172999@192.168.178.1"]
     # Loeschen nimmt Plan und Telefon mit
     post(admin, f"/api/admin/hausdienst/person/{sven['id']}/loeschen", environ_base=INGRESS)
     d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json
@@ -1427,3 +1450,58 @@ def test_umstellung_aus_0_12_0(tmp_path):
         conn.close()
     finally:
         server.DB_PFAD = pfad
+
+
+def test_tausch_anruf_tagsueber_mit_taste(anrufe, ha):
+    anna, bert, auf, ids = (anrufe[k] for k in ("anna", "bert", "auf", "ids"))
+    # Bert fragt Anna (nur Anna hat eine Nummer) wegen seines Flurs am Dienstag
+    r = post(bert, "/api/hausdienst/anfrage", {"datum": "2026-11-03", "aufgabe_id": auf["Flur"], "an_id": ids["anna"]})
+    assert r.status_code == 200, r.json
+    pruefen(um(6, 50))   # vor 7 Uhr ruft keine Anfrage an
+    assert waehlen(ha) == []
+    pruefen(um(7, 15))   # zuerst der Anruf am Morgen fuer Annas Dienst
+    pruefen(um(7, 16))
+    assert len(waehlen(ha)) == 1
+    pruefen(um(7, 18))
+    anruf = waehlen(ha)[1]
+    assert anruf["number"] == "sip:01701234567@192.168.178.1"
+    assert anruf["menu"]["message"] == ("Hallo Anna, hier ist der Hausdienst. Bert fragt, ob du morgen Flurdienst "
+                                        "übernehmen kannst. Drücke die Eins für ja oder die Zwei für nein.")
+    ja = anruf["menu"]["choices"]["1"]["action"]["service_data"]["input"]
+    assert anruf["menu"]["choices"]["2"]["action"]["service_data"]["input"] == ja | {"ja": False}
+    pruefen(um(7, 30))
+    assert len(waehlen(ha)) == 2  # je Anfrage nur ein Anruf
+    server.stdin_lesen([server.json.dumps(ja) + "\n"])
+    assert "2026-11-03" in [m["datum"] for m in anna.get("/api/hausdienst").json["meine"]]
+    liste = anrufe["admin"].get("/api/admin/hausdienst", environ_base=INGRESS).json["anrufliste"]
+    assert liste[0]["versuch"] == -1 and liste[0]["bestaetigt"]
+
+
+def test_tausch_nachts_erst_am_morgen(anrufe, ha, monkeypatch):
+    bert, auf, ids = anrufe["bert"], anrufe["auf"], anrufe["ids"]
+    post(anrufe["admin"], "/api/admin/hausdienst/telefon", {"person_id": ids["anna"], "nummer": "0170", "zeit": ""},
+         environ_base=INGRESS)
+    post(bert, "/api/hausdienst/anfrage", {"datum": "2026-11-03", "aufgabe_id": auf["Flur"], "an_id": ids["anna"]})
+    pruefen(um(21, 0))
+    pruefen(um(23, 30))
+    assert waehlen(ha) == []
+    dienstag = MONTAG + server.datetime.timedelta(days=1)
+    monkeypatch.setattr(server, "heute", lambda: dienstag)
+    pruefen(um(7, 0, dienstag))
+    assert len(waehlen(ha)) == 1 and "heute Flurdienst" in waehlen(ha)[0]["menu"]["message"]
+
+
+def test_anrufzeit_selbst_einstellen(anrufe):
+    anna, admin, ids = anrufe["anna"], anrufe["admin"], anrufe["ids"]
+    assert anna.get("/api/hausdienst").json["anrufzeit"] == {"zeit": "06:30", "tage": {"0": "07:15"}, "nummer": True}
+    assert post(anna, "/api/hausdienst/anrufzeit", {"zeit": "6:45"}).status_code == 400
+    assert post(anna, "/api/hausdienst/anrufzeit", {"zeit": "06:45", "tage": {"5": "09:00"}}).status_code == 200
+    t = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["telefon"][str(ids["anna"])]
+    assert t == {"nummer": "01701234567", "zeit": "06:45", "tage": {"5": "09:00"}}
+    # Ohne Nummer geht es auch - die traegt dann die Verwaltung nach
+    assert post(anrufe["bert"], "/api/hausdienst/anrufzeit", {"zeit": "07:00"}).status_code == 200
+    assert anrufe["bert"].get("/api/hausdienst").json["anrufzeit"]["nummer"] is False
+    gast = server.app.test_client()
+    registrieren(gast, "gast@example.org", "Gast")
+    freigeben("gast@example.org", familie=True)
+    assert post(gast, "/api/hausdienst/anrufzeit", {"zeit": "07:00"}).status_code == 403

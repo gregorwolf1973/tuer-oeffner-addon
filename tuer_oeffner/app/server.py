@@ -312,6 +312,22 @@ CREATE TABLE IF NOT EXISTS hd_antraege (
     angelegt INTEGER NOT NULL,
     entschieden INTEGER
 );
+-- Tauschanfrage: von_id fragt an_id, ob sie am datum die aufgabe_id
+-- uebernimmt. Antwort per Taste im Anruf oder in der App.
+CREATE TABLE IF NOT EXISTS hd_anfragen (
+    id INTEGER PRIMARY KEY,
+    von_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
+    an_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
+    datum TEXT NOT NULL,
+    aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
+    -- offen | ja | nein | zurueckgezogen
+    status TEXT NOT NULL DEFAULT 'offen',
+    angelegt INTEGER NOT NULL,
+    entschieden INTEGER,
+    -- Der Anruf bei an_id; mit der Kennung kommt die Taste zurueck
+    angerufen INTEGER,
+    kennung TEXT UNIQUE
+);
 """
 
 
@@ -1634,12 +1650,16 @@ def api_standorte(b):
 # ------------------------------------------------------------------
 
 WOCHENTAGE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+MONATE = ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
+          "November", "Dezember")
 HD_MEIN_PLAN_TAGE = 28
 HD_VERWALTUNG_TAGE = 14
 HD_PAUSE_MAX_TAGE = 60
 # So weit im Voraus darf beantragt werden
 HD_ANTRAG_MAX_TAGE = 366
 HD_OFFENE_ANTRAEGE_MAX = 10
+# Tauschanfragen rufen nur tagsueber an, nachts gestellte am Morgen
+HD_ANFRAGE_VON, HD_ANFRAGE_BIS = 7, 21
 
 
 def heute():
@@ -1705,6 +1725,15 @@ def hd_personen():
     return [dict(r) for r in db().execute("SELECT id, name FROM hd_personen ORDER BY name")]
 
 
+def hd_erreichbar(pid):
+    """Wen man um einen Tausch fragen kann: mit Telefonnummer oder mit
+    freigegebenem Familien-Zugang (antwortet dann in der App)."""
+    return [dict(r) for r in db().execute(
+        "SELECT p.id, p.name FROM hd_personen p LEFT JOIN hd_telefon t ON t.person_id = p.id"
+        " LEFT JOIN benutzer b ON b.id = p.benutzer_id"
+        " WHERE p.id != ? AND (t.nummer != '' OR (b.familie = 1 AND b.status = 'aktiv')) ORDER BY p.name", (pid,))]
+
+
 def person_von(b):
     """Die Person im Hausdienst, mit der dieser Zugang verknuepft ist."""
     r = db().execute("SELECT id FROM hd_personen WHERE benutzer_id = ?", (b["id"],)).fetchone()
@@ -1743,6 +1772,67 @@ def antraege_laden(bedingung="1", werte=(), grenze=30):
         f" WHERE {bedingung} ORDER BY h.status = 'offen' DESC, h.id DESC LIMIT ?", (*werte, grenze))]
 
 
+def anfragen_laden(bedingung="1", werte=(), grenze=30):
+    erg = []
+    for r in db().execute(
+            "SELECT f.*, v.name AS von_name, n.name AS an_name, g.name AS aufgabe, g.ansage FROM hd_anfragen f"
+            " JOIN hd_personen v ON v.id = f.von_id JOIN hd_personen n ON n.id = f.an_id"
+            " JOIN hd_aufgaben g ON g.id = f.aufgabe_id"
+            f" WHERE {bedingung} ORDER BY f.id DESC LIMIT ?", (*werte, grenze)):
+        a = dict(r) | {"dienst": f"{r['aufgabe']} am {datum_text(datum_lesen(r['datum']))}"}
+        # Ist der Tag vorbei, ist eine unbeantwortete Anfrage erledigt
+        if a["status"] == "offen" and a["datum"] < heute().isoformat():
+            a["status"] = "abgelaufen"
+        erg.append(a)
+    return erg
+
+
+def dienst_uebergeben(tag, dienst, an_id):
+    if dienst["plan_id"]:
+        abweichung_setzen(tag, db().execute("SELECT * FROM hd_plan WHERE id = ?", (dienst["plan_id"],)).fetchone(), an_id)
+    else:
+        db().execute("UPDATE hd_abweichungen SET person_id = ? WHERE id = ?", (an_id, dienst["abweichung_id"]))
+
+
+def anfrage_beantworten(a, ja):
+    """Antwort auf eine Tauschanfrage (Zeile aus hd_anfragen). Bei Ja geht
+    der Dienst sofort an die gefragte Person. Gibt einen Fehlertext zurueck."""
+    tag = datum_lesen(a["datum"])
+    if a["status"] != "offen" or tag < heute():
+        return "Diese Anfrage ist nicht mehr offen."
+    jetzt = int(time.time())
+    if ja:
+        dienst = next((d for d in faellige_dienste(tag)
+                       if d["person_id"] == a["von_id"] and d["aufgabe_id"] == a["aufgabe_id"]), None)
+        if not dienst:
+            return "Diesen Dienst gibt es so nicht mehr – vielleicht hat ihn schon jemand übernommen."
+        if pausiert_am(a["an_id"], tag):
+            return "Du hast an dem Tag Pause."
+        dienst_uebergeben(tag, dienst, a["an_id"])
+        # Wer sonst noch fuer denselben Dienst gefragt wurde, muss nicht mehr antworten
+        db().execute("UPDATE hd_anfragen SET status = 'zurueckgezogen', entschieden = ? WHERE status = 'offen'"
+                     " AND id != ? AND von_id = ? AND datum = ? AND aufgabe_id = ?",
+                     (jetzt, a["id"], a["von_id"], a["datum"], a["aufgabe_id"]))
+    db().execute("UPDATE hd_anfragen SET status = ?, entschieden = ? WHERE id = ?", ("ja" if ja else "nein", jetzt, a["id"]))
+    db().commit()
+    if ja:
+        f = anfragen_laden("f.id = ?", (a["id"],))[0]
+        glocke(f"Tausch: {f['an_name']} übernimmt {f['dienst']} von {f['von_name']}.", f"hausdienst_tausch_{a['id']}")
+    return None
+
+
+def anrufzeiten_lesen(e):
+    """Uhrzeit fuer jeden Tag und abweichende Wochentage pruefen."""
+    zeit = str(e.get("zeit", "")).strip()
+    tage = e.get("tage") or {}
+    if not isinstance(tage, dict) or any(k not in {str(i) for i in range(7)} for k in tage):
+        return None, None, "Ungültige Wochentage."
+    tage = {k: str(v).strip() for k, v in tage.items() if str(v).strip()}
+    if any(not UHRZEIT_MUSTER.match(z) for z in [zeit, *tage.values()] if z):
+        return None, None, "Uhrzeiten bitte als HH:MM, z. B. 06:30."
+    return zeit, json.dumps(tage, sort_keys=True), None
+
+
 @app.get("/api/hausdienst")
 @braucht("voll")
 def api_hausdienst(b):
@@ -1768,9 +1858,89 @@ def api_hausdienst(b):
                                          " ORDER BY von", (pid, tag.isoformat()))],
         "antraege": [{k: a[k] for k in ("id", "status", "text", "angelegt")}
                      for a in antraege_laden("h.person_id = ?", (pid,), 10)],
-        "familie": [f for f in hd_personen() if f["id"] != pid] if pid else [],
+        "familie": hd_erreichbar(pid) if pid else [],
+        "anfragen_an_mich": [{k: a[k] for k in ("id", "von_name", "dienst")} for a in anfragen_laden(
+            "f.an_id = ? AND f.status = 'offen' AND f.datum >= ?", (pid, tag.isoformat()))],
+        "meine_anfragen": [{k: a[k] for k in ("id", "an_name", "dienst", "status")} for a in anfragen_laden(
+            "f.von_id = ? AND f.datum >= ?", (pid, tag.isoformat()), 10)],
+        "anrufzeit": anrufzeit_zeigen(pid),
         "pause_max": HD_PAUSE_MAX_TAGE,
     })
+
+
+def anrufzeit_zeigen(pid):
+    t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone() if pid else None
+    return {"zeit": t["zeit"] if t else "", "tage": json.loads(t["tage"] or "{}") if t else {},
+            "nummer": bool(t and t["nummer"])}
+
+
+@app.post("/api/hausdienst/anrufzeit")
+@braucht("voll")
+def api_hausdienst_anrufzeit(b):
+    """Die eigene Uhrzeit fuer den Anruf am Morgen. Die Nummer pflegt die Verwaltung."""
+    pid = person_von(b) if ist_familie(b) else None
+    if not pid:
+        return fehler("Du stehst noch nicht im Hausdienst-Plan.", 403)
+    zeit, tage, fehl = anrufzeiten_lesen(json_eingabe())
+    if fehl:
+        return fehler(fehl)
+    db().execute("INSERT INTO hd_telefon (person_id, zeit, tage) VALUES (?, ?, ?)"
+                 " ON CONFLICT(person_id) DO UPDATE SET zeit = excluded.zeit, tage = excluded.tage", (pid, zeit, tage))
+    db().commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/hausdienst/anfrage")
+@braucht("voll")
+def api_hausdienst_anfrage(b):
+    """Eine andere Person fragen, ob sie einen eigenen Dienst uebernimmt."""
+    pid = person_von(b) if ist_familie(b) else None
+    if not pid:
+        return fehler("Du stehst noch nicht im Hausdienst-Plan.", 403)
+    e = json_eingabe()
+    tag = datum_lesen(e.get("datum"))
+    aid, an_id = ganzzahl(e.get("aufgabe_id")), ganzzahl(e.get("an_id"))
+    if not tag or not heute() <= tag <= heute() + datetime.timedelta(days=HD_ANTRAG_MAX_TAGE):
+        return fehler("Bitte einen Tag ab heute und höchstens ein Jahr im Voraus wählen.")
+    if not any(d["person_id"] == pid and d["aufgabe_id"] == aid for d in faellige_dienste(tag)):
+        return fehler("Diesen Dienst hast du an dem Tag nicht.")
+    if an_id not in {f["id"] for f in hd_erreichbar(pid)}:
+        return fehler("Bitte wählen, wen du fragst.")
+    if pausiert_am(an_id, tag):
+        return fehler("Wer übernehmen soll, hat an dem Tag Pause.")
+    if db().execute("SELECT COUNT(*) FROM hd_anfragen WHERE von_id = ? AND status = 'offen' AND datum >= ?",
+                    (pid, heute().isoformat())).fetchone()[0] >= HD_OFFENE_ANTRAEGE_MAX:
+        return fehler("Du hast schon genug offene Anfragen – warte erst die Antworten ab.")
+    if db().execute("SELECT 1 FROM hd_anfragen WHERE von_id = ? AND an_id = ? AND datum = ? AND aufgabe_id = ?"
+                    " AND status = 'offen'", (pid, an_id, tag.isoformat(), aid)).fetchone():
+        return fehler("Diese Anfrage läuft schon.")
+    neu = db().execute("INSERT INTO hd_anfragen (von_id, an_id, datum, aufgabe_id, angelegt) VALUES (?, ?, ?, ?, ?)",
+                       (pid, an_id, tag.isoformat(), aid, int(time.time())))
+    db().commit()
+    a = anfragen_laden("f.id = ?", (neu.lastrowid,))[0]
+    protokollieren("hd_anfrage", b, f"{a['dienst']} an {a['an_name']}")
+    return jsonify({"ok": True})
+
+
+@app.post("/api/hausdienst/anfrage/<int:fid>/<antwort>")
+@braucht("voll")
+def api_hausdienst_anfrage_antwort(b, fid, antwort):
+    if antwort not in ("ja", "nein", "zurueckziehen"):
+        abort(404)
+    pid = person_von(b) if ist_familie(b) else None
+    a = db().execute("SELECT * FROM hd_anfragen WHERE id = ?", (fid,)).fetchone()
+    # Antworten darf nur, wer gefragt wurde - zurueckziehen nur, wer gefragt hat
+    if not pid or not a or a["von_id" if antwort == "zurueckziehen" else "an_id"] != pid:
+        return fehler("Diese Anfrage gibt es nicht.", 404)
+    if antwort == "zurueckziehen":
+        if a["status"] != "offen":
+            return fehler("Diese Anfrage ist nicht mehr offen.")
+        db().execute("UPDATE hd_anfragen SET status = 'zurueckgezogen', entschieden = ? WHERE id = ?",
+                     (int(time.time()), fid))
+        db().commit()
+    elif (fehl := anfrage_beantworten(a, antwort == "ja")):
+        return fehler(fehl)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/hausdienst/antrag")
@@ -1789,20 +1959,7 @@ def api_hausdienst_antrag(b):
                     (pid,)).fetchone()[0] >= HD_OFFENE_ANTRAEGE_MAX:
         return fehler("Du hast schon genug offene Anträge – warte erst die Entscheidung ab.")
     jetzt = int(time.time())
-    if e.get("art") == "umplanen":
-        aid, an_id = ganzzahl(e.get("aufgabe_id")), ganzzahl(e.get("an_id"))
-        if not any(d["person_id"] == pid and d["aufgabe_id"] == aid for d in faellige_dienste(tag)):
-            return fehler("Diesen Dienst hast du an dem Tag nicht.")
-        if an_id == pid or an_id not in {f["id"] for f in hd_personen()}:
-            return fehler("Bitte wählen, wer aus der Familie übernimmt.")
-        if pausiert_am(an_id, tag):
-            return fehler("Wer übernehmen soll, hat an dem Tag Pause.")
-        if db().execute("SELECT 1 FROM hd_antraege WHERE person_id = ? AND art = 'umplanen' AND datum = ?"
-                        " AND aufgabe_id = ? AND status = 'offen'", (pid, tag.isoformat(), aid)).fetchone():
-            return fehler("Dafür läuft schon ein Antrag.")
-        neu = db().execute("INSERT INTO hd_antraege (person_id, art, datum, aufgabe_id, an_id, angelegt)"
-                           " VALUES (?, 'umplanen', ?, ?, ?, ?)", (pid, tag.isoformat(), aid, an_id, jetzt))
-    elif e.get("art") == "pause":
+    if e.get("art") == "pause":
         tage = ganzzahl(e.get("tage"))
         if not tage or not 1 <= tage <= HD_PAUSE_MAX_TAGE:
             return fehler(f"Eine Pause dauert 1 bis {HD_PAUSE_MAX_TAGE} Tage.")
@@ -1864,28 +2021,56 @@ def ansage_bauen(name, ansagen, tag):
             .replace("{tag}", WOCHENTAGE[tag.weekday()]))
 
 
-def anruf_menue(ansage, kennung):
-    """Ansage, zweimal "Ich wiederhole", dann auflegen. Taste 1 meldet sich
-    ueber hassio.addon_stdin bei diesem Add-on zurueck."""
-    verstanden = {
-        "message": "Danke, einen schönen Tag!", "language": "de", "cache_audio": True, "post_action": "hangup",
-        "action": {"domain": "hassio", "service": "addon_stdin",
-                   "service_data": {"addon": EIGENER_SLUG, "input": {"hausdienst_bestaetigt": kennung}}},
-    }
-    stufe = {"message": "Tschüss.", "language": "de", "cache_audio": True, "post_action": "hangup"}
+def rueckmeldung(text, eingabe):
+    """Was nach einer Taste gesagt wird; die Taste geht ueber
+    hassio.addon_stdin an dieses Add-on zurueck."""
+    return {"message": text, "language": "de", "cache_audio": True, "post_action": "hangup",
+            "action": {"domain": "hassio", "service": "addon_stdin",
+                       "service_data": {"addon": EIGENER_SLUG, "input": eingabe}}}
+
+
+def wiederholen(ansage, tasten, schluss="Tschüss."):
+    """Ansage, zweimal "Ich wiederhole" (damit sie auch auf der Mailbox
+    landet), dann auflegen."""
+    stufe = {"message": schluss, "language": "de", "cache_audio": True, "post_action": "hangup"}
     for text in ("Ich wiederhole: " + ansage, "Ich wiederhole: " + ansage, ansage):
-        stufe = {"message": text, "language": "de", "timeout": HD_WARTEN_S,
-                 "choices": {"1": verstanden, "timeout": stufe}}
+        stufe = {"message": text, "language": "de", "timeout": HD_WARTEN_S, "choices": tasten | {"timeout": stufe}}
     return stufe
 
 
-def anrufen(pid, versuch, ansage, nummer, tag, zeitpunkt):
-    kennung = secrets.token_hex(12)
+def anruf_menue(ansage, kennung):
+    return wiederholen(ansage, {"1": rueckmeldung("Danke, einen schönen Tag!", {"hausdienst_bestaetigt": kennung})})
+
+
+def anfrage_menue(ansage, kennung):
+    return wiederholen(ansage, {
+        "1": rueckmeldung("Danke, der Dienst ist jetzt bei dir.", {"hausdienst_antwort": kennung, "ja": True}),
+        "2": rueckmeldung("Alles klar, danke.", {"hausdienst_antwort": kennung, "ja": False}),
+    }, "Du kannst auch in der Türöffner-App antworten. Tschüss.")
+
+
+def datum_gesprochen(tag):
+    if tag == heute():
+        return "heute"
+    if tag == heute() + datetime.timedelta(days=1):
+        return "morgen"
+    return f"am {WOCHENTAGE[tag.weekday()]}, den {tag.day}. {MONATE[tag.month - 1]}"
+
+
+def anfrage_ansage(a):
+    return (f"Hallo {a['an_name'].split()[0]}, hier ist der Hausdienst. {a['von_name'].split()[0]} fragt, ob du "
+            f"{datum_gesprochen(datum_lesen(a['datum']))} {a['ansage']} übernehmen kannst. "
+            "Drücke die Eins für ja oder die Zwei für nein.")
+
+
+def anrufen(pid, versuch, ansage, nummer, tag, zeitpunkt, menue=anruf_menue, kennung=None):
+    """versuch: 1/2 = Anruf am Morgen, 0 = Testanruf, -1 = Tauschanfrage."""
+    kennung = kennung or secrets.token_hex(12)
     fehl = None
     try:
         ha_aufruf("POST", "/services/hassio/addon_stdin", {"addon": SIP_ADDON, "input": {
             "command": "dial", "number": nummer if nummer.startswith("sip:") else f"sip:{nummer}@{SIP_SERVER}",
-            "sip_account": SIP_KONTO, "ring_timeout": HD_KLINGELN_S, "menu": anruf_menue(ansage, kennung),
+            "sip_account": SIP_KONTO, "ring_timeout": HD_KLINGELN_S, "menu": menue(ansage, kennung),
         }})
     except Exception as e:  # noqa: BLE001
         # Kein neuer Versuch im Halbminutentakt - der zweite Anruf holt es nach
@@ -1933,6 +2118,18 @@ def anrufe_pruefen(jetzt=None):
             anrufen(pid, versuch, ansage_bauen(dienste[0]["name"], [d["ansage"] for d in dienste], tag), t["nummer"],
                     tag, jetzt.timestamp())
             return  # der naechste fruehestens nach HD_ANRUF_ABSTAND_S
+    # Danach die Tauschanfragen - nur tagsueber, je Anfrage ein Anruf
+    if not HD_ANFRAGE_VON <= jetzt.hour < HD_ANFRAGE_BIS:
+        return
+    for a in anfragen_laden("f.status = 'offen' AND f.angerufen IS NULL AND f.datum >= ?", (tag.isoformat(),)):
+        t = db().execute("SELECT nummer FROM hd_telefon WHERE person_id = ?", (a["an_id"],)).fetchone()
+        if not t or not t["nummer"]:
+            continue
+        kennung = secrets.token_hex(12)
+        db().execute("UPDATE hd_anfragen SET angerufen = ?, kennung = ? WHERE id = ?",
+                     (int(jetzt.timestamp()), kennung, a["id"]))
+        anrufen(a["an_id"], -1, anfrage_ansage(a), t["nummer"], tag, jetzt.timestamp(), anfrage_menue, kennung)
+        return
 
 
 def anruf_bestaetigen(kennung):
@@ -1945,6 +2142,14 @@ def anruf_bestaetigen(kennung):
         conn.close()
 
 
+def anfrage_per_taste(kennung, ja):
+    anruf_bestaetigen(kennung)
+    with app.app_context():
+        a = db().execute("SELECT * FROM hd_anfragen WHERE kennung = ?", (kennung,)).fetchone()
+        if a and (fehl := anfrage_beantworten(a, ja)):
+            log.info("Tauschanfrage %s: %s", a["id"], fehl)
+
+
 def stdin_lesen(quelle):
     """ha-sip meldet Taste 1 ueber hassio.addon_stdin - je Zeile ein JSON."""
     for zeile in quelle:
@@ -1952,10 +2157,14 @@ def stdin_lesen(quelle):
             daten = json.loads(zeile)
         except ValueError:
             continue
-        kennung = daten.get("hausdienst_bestaetigt") if isinstance(daten, dict) else None
-        if isinstance(kennung, str):
+        if not isinstance(daten, dict):
+            continue
+        if isinstance(daten.get("hausdienst_bestaetigt"), str):
             log.info("Hausdienst: Taste 1 gemeldet")
-            anruf_bestaetigen(kennung)
+            anruf_bestaetigen(daten["hausdienst_bestaetigt"])
+        elif isinstance(daten.get("hausdienst_antwort"), str):
+            log.info("Hausdienst: Antwort auf eine Tauschanfrage")
+            anfrage_per_taste(daten["hausdienst_antwort"], daten.get("ja") is True)
     log.warning("stdin ist zu - Taste 1 aus ha-sip kommt nicht mehr an")
 
 
@@ -2154,6 +2363,8 @@ def api_admin_hausdienst():
                        "SELECT p.id, p.von, p.bis, b.name FROM hd_pausen p JOIN hd_personen b ON b.id = p.person_id"
                        " WHERE p.bis >= ? ORDER BY p.von", (tag.isoformat(),))],
         "antraege": antraege_laden(),
+        "anfragen": [{k: a[k] for k in ("id", "von_name", "an_name", "dienst", "status", "angelegt")}
+                     for a in anfragen_laden("f.datum >= ?", ((tag - datetime.timedelta(days=7)).isoformat(),), 15)],
         "anrufe": {
             "moeglich": bool(SIP_ADDON and SIP_SERVER),
             "an": einstellung_lesen("hd_anrufe") == "1",
@@ -2300,20 +2511,16 @@ def api_admin_hd_telefon():
     e = json_eingabe()
     pid = person_id(e.get("person_id"))
     nummer = re.sub(r"[\s/()-]", "", str(e.get("nummer", "")))
-    zeit = str(e.get("zeit", "")).strip()
-    tage = e.get("tage") or {}
     if not pid:
         return fehler("Diese Person gibt es im Hausdienst nicht.")
     if nummer and not NUMMER_MUSTER.match(nummer):
         return fehler("Die Telefonnummer bitte nur aus Ziffern, z. B. 01701234567.")
-    if not isinstance(tage, dict) or any(k not in {str(i) for i in range(7)} for k in tage):
-        return fehler("Ungültige Wochentage.")
-    tage = {k: str(v).strip() for k, v in tage.items() if str(v).strip()}
-    if any(not UHRZEIT_MUSTER.match(z) for z in [zeit, *tage.values()] if z):
-        return fehler("Uhrzeiten bitte als HH:MM, z. B. 06:30.")
+    zeit, tage, fehl = anrufzeiten_lesen(e)
+    if fehl:
+        return fehler(fehl)
     db().execute("INSERT INTO hd_telefon (person_id, nummer, zeit, tage) VALUES (?, ?, ?, ?)"
                  " ON CONFLICT(person_id) DO UPDATE SET nummer = excluded.nummer, zeit = excluded.zeit,"
-                 " tage = excluded.tage", (pid, nummer, zeit, json.dumps(tage, sort_keys=True)))
+                 " tage = excluded.tage", (pid, nummer, zeit, tage))
     db().commit()
     return jsonify({"ok": True})
 
@@ -2376,11 +2583,7 @@ def api_admin_hd_antrag(aid, entscheidung):
                 return fehler("Dieser Dienst steht so nicht mehr im Plan – bitte den Tag selbst umplanen.")
             if pausiert_am(a["an_id"], tag):
                 return fehler(f"{a['an_name']} hat an dem Tag inzwischen Pause – bitte ablehnen oder selbst umplanen.")
-            if dienst["plan_id"]:
-                abweichung_setzen(tag, db().execute("SELECT * FROM hd_plan WHERE id = ?", (dienst["plan_id"],)).fetchone(),
-                                  a["an_id"])
-            else:
-                db().execute("UPDATE hd_abweichungen SET person_id = ? WHERE id = ?", (a["an_id"], dienst["abweichung_id"]))
+            dienst_uebergeben(tag, dienst, a["an_id"])
     db().execute("UPDATE hd_antraege SET status = ?, entschieden = ? WHERE id = ?",
                  ("genehmigt" if entscheidung == "genehmigen" else "abgelehnt", int(time.time()), aid))
     db().commit()

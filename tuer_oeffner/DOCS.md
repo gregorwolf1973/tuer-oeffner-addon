@@ -49,10 +49,13 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
   - **Pollenflug** vom DWD für heute, morgen und übermorgen: belastete
     Arten mit Farbstufe (gering – mittel – hoch), der Rest eingeklappt.
   - **Hausdienst:** wer heute was macht und wann man selbst wieder dran
-    ist. Umplanen („Kai übernimmt“) oder eine Pause lässt sich beantragen;
-    der Antrag landet in der Glocke von Home Assistant und wird in der
-    Verwaltung entschieden. Zur eingestellten Uhrzeit ruft ha-sip an,
-    Taste 1 = verstanden, sonst nach 30 Minuten ein zweiter Anruf.
+    ist. Einen Dienst abgeben: die andere Person direkt fragen – sie wird
+    angerufen (7–21 Uhr, 1 = ja, 2 = nein) oder antwortet in der App, bei Ja
+    ist der Dienst gleich bei ihr. Eine Pause wird beantragt; der Antrag
+    landet in der Glocke von Home Assistant und wird in der Verwaltung
+    entschieden. Zur eingestellten Uhrzeit (jeder stellt sie selbst ein)
+    ruft ha-sip an, Taste 1 = verstanden, sonst nach 30 Minuten ein zweiter
+    Anruf.
 
   Beides geht von überall, ohne Standortprüfung.
 - **Gäste-WLAN:** Jeder freigegebene Zugang – auch Freunde – hat in der App

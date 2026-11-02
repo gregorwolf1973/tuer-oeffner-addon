@@ -341,6 +341,18 @@ function tageZeigen(d) {
   }));
 }
 
+const HD_TAUSCH = { offen: "wartet", ja: "übernimmt", nein: "kann nicht", zurueckgezogen: "zurückgezogen", abgelaufen: "abgelaufen" };
+
+function anfragenZeigen(d) {
+  const teile = d.anfragen.map((a) => {
+    const z = el("div", null, "hd-antrag");
+    z.append(el("span", `Tausch: ${a.von_name} fragt ${a.an_name} – ${a.dienst}`), el("small", zeit(a.angelegt), "leise"),
+      el("span", HD_TAUSCH[a.status] || a.status, "status " + (a.status === "ja" ? "aktiv" : a.status === "offen" ? "wartet" : "neu")));
+    return z;
+  });
+  $("#hd-anfragen").replaceChildren(...teile);
+}
+
 function antraegeZeigen(d) {
   const offen = d.antraege.filter((a) => a.status === "offen").length;
   $("#hd-zaehler").textContent = offen ? `${offen} offene${offen === 1 ? "r" : ""} Antr${offen === 1 ? "ag" : "äge"}` : "";
@@ -459,7 +471,7 @@ function anrufeZeigen(d) {
 
   const tabelle = el("table", null, "hd-telefon");
   const kopf = el("tr");
-  ["Person", "Nummer", "Uhrzeit", ...KURZ_TAGE, ""].forEach((t) => kopf.append(el("th", t)));
+  ["Person", "Nummer", "Jeden Tag", ...KURZ_TAGE, ""].forEach((t) => kopf.append(el("th", t)));
   const thead = el("thead");
   thead.append(kopf);
   const tbody = el("tbody");
@@ -496,7 +508,7 @@ function anrufeZeigen(d) {
   tabelle.append(thead, tbody);
   const rahmen = el("div", null, "tabelle-rahmen");
   rahmen.append(tabelle);
-  teile.push(rahmen, el("p", "Leer gelassene Wochentage nutzen die Uhrzeit links. Ohne Uhrzeit oder Nummer wird nicht angerufen.", "leise"));
+  teile.push(rahmen, el("p", "„Jeden Tag“ gilt für alle Tage mit Dienst; in Mo–So nur eintragen, wenn es an dem Tag anders sein soll. Ohne Uhrzeit oder Nummer wird nicht angerufen. Wer einen Zugang hat, kann seine Zeit auch selbst in der App einstellen.", "leise"));
 
   if (d.anrufliste.length) {
     const liste = el("table");
@@ -507,10 +519,11 @@ function anrufeZeigen(d) {
     const lb = el("tbody");
     d.anrufliste.forEach((r) => {
       const tr = el("tr");
+      const um = r.bestaetigt && new Date(r.bestaetigt * 1000).toLocaleTimeString("de-DE", { timeStyle: "short" });
       const ergebnis = r.fehler ? "Fehler: " + r.fehler
-        : r.bestaetigt ? "Taste 1 um " + new Date(r.bestaetigt * 1000).toLocaleTimeString("de-DE", { timeStyle: "short" })
-          : "keine Taste 1 (Mailbox oder nicht abgenommen)";
-      tr.append(el("td", zeit(r.zeit)), el("td", r.name), el("td", ["Test", "1.", "2."][r.versuch] || r.versuch),
+        : r.versuch < 0 ? (um ? "Antwort per Taste um " + um : "keine Antwort per Taste")
+          : um ? "Taste 1 um " + um : "keine Taste 1 (Mailbox oder nicht abgenommen)";
+      tr.append(el("td", zeit(r.zeit)), el("td", r.name), el("td", { "-1": "Tausch", 0: "Test", 1: "1.", 2: "2." }[r.versuch] ?? r.versuch),
         el("td", ergebnis));
       lb.append(tr);
     });
@@ -537,6 +550,7 @@ async function hausdienstLaden() {
   if (!d.aufgaben.length) hinweise.push("Zuerst unten die Aufgaben anlegen (z. B. Küche → Küchendienst), dann den Wochenplan füllen.");
   $("#hd-hinweise").replaceChildren(...hinweise.map((w) => el("p", w, "hinweis")));
   antraegeZeigen(d);
+  anfragenZeigen(d);
   wocheZeigen(d);
   tageZeigen(d);
   personenZeigen(d);

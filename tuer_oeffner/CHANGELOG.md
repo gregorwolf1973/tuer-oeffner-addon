@@ -1,5 +1,20 @@
 # Änderungen
 
+## 0.13.0
+
+- Hausdienst: **Tausch direkt untereinander.** In der App fragt man eine
+  andere Person, ob sie einen eigenen Dienst übernimmt. Sie wird angerufen
+  (nur zwischen 7 und 21 Uhr, nachts gestellte Anfragen am Morgen) und
+  antwortet mit 1 = ja oder 2 = nein – oder in der App. Bei Ja ist der Dienst
+  sofort bei ihr, du bekommst eine Info in die Glocke. Unbeantwortete
+  Anfragen verschwinden, wenn der Tag vorbei ist. Das bisherige „Umplanen
+  beantragen“ entfällt; „Pause beantragen“ bleibt ein Antrag an dich.
+- Jeder mit Zugang stellt die **Uhrzeit für den Anruf am Morgen** selbst in
+  der App ein (für jeden Tag und einzelne Wochentage). Die Telefonnummer
+  bleibt in der Verwaltung.
+- Verwaltung: Die Spalte „Uhrzeit“ heißt jetzt „Jeden Tag“; die Tauschanfragen
+  der letzten Tage stehen oben beim Hausdienst.
+
 ## 0.12.2
 
 - Verwaltung: Personen, Aufgaben und Pausen überlappen sich nicht mehr.

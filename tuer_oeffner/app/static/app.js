@@ -842,6 +842,30 @@ $("#ot-trennen").addEventListener("click", () => ausfuehren(async () => {
 /* ---------- Hausdienst: wer heute dran ist, der eigene Plan, Antraege ---------- */
 
 const HD_STATUS = { offen: "offen", genehmigt: "genehmigt ✓", abgelehnt: "abgelehnt", zurueckgezogen: "zurückgezogen" };
+const HD_TAUSCH = { offen: "wartet auf Antwort", ja: "übernimmt ✓", nein: "kann nicht", zurueckgezogen: "zurückgezogen" };
+const HD_TAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+
+function hdKnopf(text, fn, klasse = "") {
+  const k = document.createElement("button");
+  k.type = "button";
+  k.className = "knopf klein " + klasse;
+  k.textContent = text;
+  k.onclick = () => ausfuehren(async () => {
+    await fn();
+    hausdienstLaden();
+  }).catch(() => {});
+  return k;
+}
+
+// Felder fuer abweichende Uhrzeiten je Wochentag
+$("#hd-zeiten").replaceChildren(...HD_TAGE.map((t, i) => {
+  const l = document.createElement("label");
+  const e = document.createElement("input");
+  e.type = "time";
+  e.name = "t" + i;
+  l.append(t, e);
+  return l;
+}));
 
 function hdEintrag(text, zusatz, klasse = "") {
   const li = document.createElement("li");
@@ -875,14 +899,38 @@ function hausdienstZeigen(d) {
     : [hdEintrag(d.eingetragen ? "In den nächsten vier Wochen hast du keinen Dienst."
       : "Du stehst noch nicht im Hausdienst-Plan.", "", "leise")]));
   $("#hd-pause-block").hidden = !d.eingetragen;
+  $("#hd-gefragt-bereich").hidden = !d.anfragen_an_mich.length;
+  $("#hd-gefragt").replaceChildren(...d.anfragen_an_mich.map((a) => {
+    const li = hdEintrag(`${a.von_name} fragt: ${a.dienst} übernehmen?`, "", "antrag offen");
+    li.append(hdKnopf("Ja", () => api(`hausdienst/anfrage/${a.id}/ja`, {}), "haupt"),
+      hdKnopf("Nein", () => api(`hausdienst/anfrage/${a.id}/nein`, {})));
+    return li;
+  }));
+  $("#hd-tausch-bereich").hidden = !d.meine_anfragen.length;
+  $("#hd-tausch-liste").replaceChildren(...d.meine_anfragen.map((a) => {
+    const li = hdEintrag(`${a.dienst} → ${a.an_name}`, HD_TAUSCH[a.status] || a.status,
+      "antrag " + ({ ja: "genehmigt", nein: "abgelehnt" }[a.status] || a.status));
+    if (a.status === "offen") li.append(hdKnopf("Zurückziehen", () => api(`hausdienst/anfrage/${a.id}/zurueckziehen`, {})));
+    return li;
+  }));
   // Die Auswahl nicht unter den Fingern austauschen
-  const block = $("#hd-umplanen-block");
+  const block = $("#hd-tausch-block");
   if (!block.open) {
-    $('#hd-umplanen [name="dienst"]').replaceChildren(
+    $('#hd-tausch [name="dienst"]').replaceChildren(
       ...d.meine.map((x) => auswahl(`${x.datum}|${x.aufgabe_id}`, `${x.tag} ${x.aufgabe}`)));
-    $('#hd-umplanen [name="an"]').replaceChildren(...d.familie.map((f) => auswahl(f.id, f.name)));
+    $('#hd-tausch [name="an"]').replaceChildren(...d.familie.map((f) => auswahl(f.id, f.name)));
   }
   block.hidden = !d.meine.length || !d.familie.length;
+  const zeiten = $("#hd-anrufzeit-block");
+  zeiten.hidden = !d.eingetragen;
+  if (!zeiten.open) {
+    const f = $("#hd-anrufzeit").elements;
+    f.namedItem("zeit").value = d.anrufzeit.zeit;
+    HD_TAGE.forEach((_, i) => { f.namedItem("t" + i).value = d.anrufzeit.tage[i] || ""; });
+    $("#hd-anrufzeit-hinweis").textContent = d.anrufzeit.nummer
+      ? "Angerufen wird nur an Tagen, an denen du Dienst hast."
+      : "Für Anrufe fehlt noch deine Telefonnummer – die trägt die Verwaltung ein.";
+  }
   const tage = $('#hd-pause [name="tage"]');
   tage.max = d.pause_max;
   $('#hd-pause [name="datum"]').min = new Date().toLocaleDateString("sv");
@@ -910,12 +958,24 @@ async function hausdienstLaden() {
   } catch { /* Anzeige bleibt, wie sie war */ }
 }
 
-formular("#hd-umplanen", async (d) => {
+formular("#hd-tausch", async (d) => {
   const [datum, aufgabe] = d.dienst.split("|");
-  await api("hausdienst/antrag", { art: "umplanen", datum, aufgabe_id: Number(aufgabe), an_id: Number(d.an) });
-  $("#hd-umplanen-block").open = false;
-  melde("Der Antrag ist gestellt.", "ok");
+  await api("hausdienst/anfrage", { datum, aufgabe_id: Number(aufgabe), an_id: Number(d.an) });
+  $("#hd-tausch-block").open = false;
+  melde("Die Anfrage ist unterwegs.", "ok");
   hausdienstLaden();
+});
+
+$("#hd-anrufzeit").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const d = Object.fromEntries(new FormData(ev.target));
+  const tage = Object.fromEntries(HD_TAGE.map((_, i) => [i, d["t" + i]]).filter(([, v]) => v));
+  ausfuehren(async () => {
+    await api("hausdienst/anrufzeit", { zeit: d.zeit, tage });
+    $("#hd-anrufzeit-block").open = false;
+    melde("Deine Anrufzeit ist gespeichert.", "ok");
+    hausdienstLaden();
+  }).catch(() => {});
 });
 
 formular("#hd-pause", async (d) => {

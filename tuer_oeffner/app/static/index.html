@@ -118,15 +118,20 @@
           <span id="hd-heute-tag" class="leise"></span>
         </div>
         <ul id="hd-heute" class="hd-liste"></ul>
+        <div id="hd-gefragt-bereich" hidden>
+          <h3>Anfragen an dich</h3>
+          <ul id="hd-gefragt" class="hd-liste"></ul>
+        </div>
         <h3>Dein Plan</h3>
         <p id="hd-pausen" class="hinweis" hidden></p>
         <ul id="hd-meine" class="hd-liste"></ul>
-        <details class="hd-antrag" id="hd-umplanen-block">
-          <summary>Umplanen beantragen</summary>
-          <form id="hd-umplanen" class="formular">
+        <details class="hd-antrag" id="hd-tausch-block">
+          <summary>Jemanden fragen, ob er übernimmt</summary>
+          <form id="hd-tausch" class="formular">
             <label>Welcher Dienst?<select name="dienst" required></select></label>
-            <label>Wer übernimmt?<select name="an" required></select></label>
-            <button class="knopf haupt">Antrag stellen</button>
+            <label>Wen fragst du?<select name="an" required></select></label>
+            <p class="leise">Die Person wird angerufen (zwischen 7 und 21 Uhr) und kann mit 1 = ja oder 2 = nein antworten – oder hier in der App. Sagt sie ja, ist der Dienst gleich bei ihr.</p>
+            <button class="knopf haupt">Fragen</button>
           </form>
         </details>
         <details class="hd-antrag" id="hd-pause-block">
@@ -137,6 +142,20 @@
             <button class="knopf haupt">Antrag stellen</button>
           </form>
         </details>
+        <details class="hd-antrag" id="hd-anrufzeit-block">
+          <summary>Wann du morgens angerufen wirst</summary>
+          <form id="hd-anrufzeit" class="formular">
+            <p id="hd-anrufzeit-hinweis" class="leise"></p>
+            <label>Jeden Tag um<input type="time" name="zeit"></label>
+            <p class="leise">An einzelnen Tagen anders (leer = wie oben):</p>
+            <div class="hd-zeiten" id="hd-zeiten"></div>
+            <button class="knopf haupt">Speichern</button>
+          </form>
+        </details>
+        <div id="hd-tausch-bereich" hidden>
+          <h3>Deine Anfragen</h3>
+          <ul id="hd-tausch-liste" class="hd-liste"></ul>
+        </div>
         <div id="hd-antraege-bereich" hidden>
           <h3>Deine Anträge</h3>
           <ul id="hd-antraege" class="hd-liste"></ul>
