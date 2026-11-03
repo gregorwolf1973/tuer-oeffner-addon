@@ -52,6 +52,8 @@ const AKTION_TEXT = {
   hd_antrag: "Hausdienst-Antrag", admin_hd_genehmigen: "Hausdienst-Antrag genehmigt",
   admin_hd_ablehnen: "Hausdienst-Antrag abgelehnt",
   hd_bewertung: "Hausdienst bewertet", admin_hd_bewertung: "Hausdienst bewertet (Verwaltung)",
+  hd_anruf_absage: "Hausdienst-Anruf abgesagt", hd_anruf_wieder: "Hausdienst-Anruf wieder angenommen",
+  admin_hd_anrufe_an: "Hausdienst-Anrufe für Person an", admin_hd_anrufe_aus: "Hausdienst-Anrufe für Person aus",
 };
 
 function knopf(text, fn, klasse = "") {
@@ -646,12 +648,12 @@ function anrufeZeigen(d) {
 
   const tabelle = el("table", null, "hd-telefon");
   const kopf = el("tr");
-  ["Person", "Nummer", "Jeden Tag", ...KURZ_TAGE, ""].forEach((t) => kopf.append(el("th", t)));
+  ["Person", "Anrufe", "Nummer", "Jeden Tag", ...KURZ_TAGE, ""].forEach((t) => kopf.append(el("th", t)));
   const thead = el("thead");
   thead.append(kopf);
   const tbody = el("tbody");
   d.personen.forEach((p) => {
-    const t = d.telefon[p.id] || { nummer: "", zeit: "", tage: {} };
+    const t = d.telefon[p.id] || { nummer: "", zeit: "", tage: {}, anrufe: true, abgesagt: "" };
     const tr = el("tr");
     const nummer = eingabe({ value: t.nummer, inputMode: "tel", placeholder: "0170…" }, `Nummer von ${p.name}`);
     const uhr = eingabe({ type: "time", value: t.zeit }, `Uhrzeit für ${p.name}`);
@@ -673,7 +675,18 @@ function anrufeZeigen(d) {
     test.disabled = !a.moeglich || !t.nummer;
     const aktionen = el("td");
     aktionen.append(speichern, test);
-    tr.append(el("td", p.name), ...[nummer, uhr, ...tage].map((x) => {
+    // Schalter wie bei den Rechten, sofort gespeichert
+    const schalter = el("button", null, "recht klein");
+    schalter.type = "button";
+    schalter.setAttribute("role", "switch");
+    schalter.setAttribute("aria-checked", String(t.anrufe));
+    schalter.setAttribute("aria-label", `Anrufe für ${p.name}`);
+    schalter.append(el("span", null, "schalter"));
+    schalter.onclick = () => hdSenden("anrufe_person", { person_id: p.id, an: !t.anrufe });
+    const anrufTd = el("td");
+    anrufTd.append(schalter);
+    if (t.anrufe && t.abgesagt) anrufTd.append(el("small", `${t.abgesagt} abgesagt`, "abgesagt"));
+    tr.append(el("td", p.name), anrufTd, ...[nummer, uhr, ...tage].map((x) => {
       const td = el("td");
       td.append(x);
       return td;
@@ -712,7 +725,7 @@ function anrufeZeigen(d) {
 
 /* ---------- Bewertungen ---------- */
 
-const BW_KNOEPFE = [[3, "gut"], [2, "naja"], [1, "nicht so gut"], [0, "gar nicht"]];
+const BW_KNOEPFE = [[3, "top"], [2, "gut"], [1, "nicht so gut"], [0, "gar nicht"]];
 const BW_ZEITRAEUME = [["woche", "Diese Woche"], ["monat", "Dieser Monat"], ["gesamt", "Insgesamt"]];
 
 function bewertungZelle(w) {
@@ -720,7 +733,7 @@ function bewertungZelle(w) {
   if (!w.anzahl) td.append(el("span", "–", "leise"));
   else {
     td.append(el("strong", `Ø ${w.durchschnitt}`), el("span", ` (${w.anzahl})`, "leise"));
-    // verteilung: gut, naja, nicht so gut, gar nicht
+    // verteilung: top, gut, nicht so gut, gar nicht
     const teile = BW_KNOEPFE.map(([, text], i) => (w.verteilung[i] ? `${w.verteilung[i]} ${text}` : "")).filter(Boolean);
     td.append(el("small", teile.join(" · "), "bw-verteilung"));
   }

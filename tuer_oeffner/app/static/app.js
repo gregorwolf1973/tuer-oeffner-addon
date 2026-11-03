@@ -903,7 +903,7 @@ function auswahl(wert, text) {
   return o;
 }
 
-const HD_BEWERTUNG = [[3, "gut"], [2, "naja"], [1, "nicht so gut"], [0, "gar nicht"]];
+const HD_BEWERTUNG = [[3, "top"], [2, "gut"], [1, "nicht so gut"], [0, "gar nicht"]];
 const HD_ZEITRAEUME = [["woche", "Woche"], ["monat", "Monat"], ["gesamt", "Insgesamt"]];
 
 // Ab 16 Uhr: die heutigen Dienste der anderen, je Dienst vier Knöpfe
@@ -997,6 +997,7 @@ function hausdienstZeigen(d) {
     $('#hd-tausch [name="an"]').replaceChildren(...d.familie.map((f) => auswahl(f.id, f.name)));
   }
   block.hidden = !d.meine.length || !d.familie.length;
+  anrufNaechsterZeigen(d);
   const zeiten = $("#hd-anrufzeit-block");
   zeiten.hidden = !d.eingetragen;
   if (!zeiten.open) {
@@ -1026,6 +1027,36 @@ function hausdienstZeigen(d) {
     }
     return li;
   }));
+}
+
+// Der nächste Morgenanruf mit Knopf zum Absagen und Zurücknehmen
+function anrufNaechsterZeigen(d) {
+  const liste = $("#hd-anruf-naechster");
+  const n = d.anrufzeit.naechster;
+  liste.hidden = !d.eingetragen || !n || (!d.anrufzeit.nummer && n.status === "keiner");
+  if (liste.hidden) return;
+  const wann = n.wann === "heute" ? "Heute" : "Morgen";
+  const li = document.createElement("li");
+  const text = document.createElement("span");
+  li.append(text);
+  if (n.status === "aus") {
+    text.textContent = "Anrufe für dich sind ausgeschaltet.";
+  } else if (n.status === "keiner") {
+    text.textContent = `${wann} kein Anruf geplant.`;
+  } else {
+    const absagen = n.status === "geplant";
+    text.textContent = absagen ? `Nächster Anruf: ${n.tag} um ${n.zeit}` : `${n.tag}: kein Anruf`;
+    const k = document.createElement("button");
+    k.type = "button";
+    k.className = "knopf";
+    k.textContent = absagen ? "Nicht anrufen" : "Doch anrufen";
+    k.onclick = () => ausfuehren(async () => {
+      await api("hausdienst/anruf", { datum: n.datum, absagen });
+      hausdienstLaden();
+    }).catch(() => {});
+    li.append(k);
+  }
+  liste.replaceChildren(li);
 }
 
 async function hausdienstLaden() {

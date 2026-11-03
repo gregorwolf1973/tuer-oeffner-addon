@@ -49,6 +49,8 @@ tr:last-child td { border-bottom: 0; }
 .recht[aria-checked="true"] .schalter { background: var(--gut); }
 .recht[aria-checked="true"] .schalter::after { transform: translateX(18px); }
 .recht:disabled { cursor: default; opacity: .55; }
+.recht.klein { width: auto; padding: 4px; }
+.hd-telefon .abgesagt { display: block; color: var(--schlecht); font-size: .78rem; }
 
 .zugang-aktionen { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .zugang-aktionen .knopf.haupt { width: auto; padding: 8px 16px; }

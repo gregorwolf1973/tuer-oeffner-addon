@@ -285,7 +285,16 @@ CREATE TABLE IF NOT EXISTS hd_telefon (
     person_id INTEGER PRIMARY KEY REFERENCES hd_personen(id) ON DELETE CASCADE,
     nummer TEXT NOT NULL DEFAULT '',
     zeit TEXT NOT NULL DEFAULT '',
-    tage TEXT NOT NULL DEFAULT '{}'
+    tage TEXT NOT NULL DEFAULT '{}',
+    -- Die Verwaltung schaltet Anrufe je Person aus (0): weder Morgenanruf noch Tauschanfragen
+    anrufe INTEGER NOT NULL DEFAULT 1
+);
+-- Wer den naechsten Morgenanruf selbst abgesagt hat (nur fuer dieses Datum)
+CREATE TABLE IF NOT EXISTS hd_anruf_abgesagt (
+    person_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
+    datum TEXT NOT NULL,
+    zeit INTEGER NOT NULL,
+    PRIMARY KEY (person_id, datum)
 );
 CREATE TABLE IF NOT EXISTS hd_anrufe (
     id INTEGER PRIMARY KEY,
@@ -327,7 +336,7 @@ CREATE TABLE IF NOT EXISTS hd_bewertungen (
     aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
     von_person_id INTEGER REFERENCES hd_personen(id) ON DELETE CASCADE,
     von_admin INTEGER NOT NULL DEFAULT 0,
-    -- 3 gut | 2 naja | 1 nicht so gut | 0 gar nicht
+    -- 3 top | 2 gut | 1 nicht so gut | 0 gar nicht
     wert INTEGER NOT NULL CHECK (wert BETWEEN 0 AND 3),
     zeit INTEGER NOT NULL
 );
@@ -428,6 +437,8 @@ def db_einrichten():
     if "owntracks_hash" not in spalten:
         conn.execute("ALTER TABLE benutzer ADD COLUMN owntracks_hash TEXT")
         conn.execute("ALTER TABLE benutzer ADD COLUMN owntracks_zuletzt INTEGER")
+    if "anrufe" not in {r[1] for r in conn.execute("PRAGMA table_info(hd_telefon)")}:
+        conn.execute("ALTER TABLE hd_telefon ADD COLUMN anrufe INTEGER NOT NULL DEFAULT 1")
     if "quelle" not in {r[1] for r in conn.execute("PRAGMA table_info(standorte)")}:
         conn.execute("ALTER TABLE standorte ADD COLUMN quelle TEXT NOT NULL DEFAULT 'app'")
     conn.execute("DELETE FROM standorte WHERE zeit < ?", (int(time.time()) - STANDORT_TAGE * 86400,))
@@ -1747,11 +1758,12 @@ def hd_personen():
 
 def hd_erreichbar(pid):
     """Wen man um einen Tausch fragen kann: mit Telefonnummer oder mit
-    freigegebenem Familien-Zugang (antwortet dann in der App)."""
+    freigegebenem Familien-Zugang (antwortet dann in der App). Sind die Anrufe
+    fuer die Person ausgeschaltet, bleibt nur die App."""
     return [dict(r) for r in db().execute(
         "SELECT p.id, p.name FROM hd_personen p LEFT JOIN hd_telefon t ON t.person_id = p.id"
         " LEFT JOIN benutzer b ON b.id = p.benutzer_id"
-        " WHERE p.id != ? AND (t.nummer != '' OR (b.familie = 1 AND b.status = 'aktiv')) ORDER BY p.name", (pid,))]
+        " WHERE p.id != ? AND ((t.nummer != '' AND t.anrufe = 1) OR (b.familie = 1 AND b.status = 'aktiv')) ORDER BY p.name", (pid,))]
 
 
 def person_von(b):
@@ -1894,7 +1906,50 @@ def api_hausdienst(b):
 def anrufzeit_zeigen(pid):
     t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone() if pid else None
     return {"zeit": t["zeit"] if t else "", "tage": json.loads(t["tage"] or "{}") if t else {},
-            "nummer": bool(t and t["nummer"])}
+            "nummer": bool(t and t["nummer"]), "naechster": naechster_anruf(pid) if pid else None}
+
+
+def anrufe_an(telefon):
+    """Ohne Eintrag oder ohne Schalter der Verwaltung: Anrufe sind an."""
+    return telefon is None or bool(telefon["anrufe"])
+
+
+def anruf_geplant(pid, tag):
+    """Soll die Person an diesem Tag morgens angerufen werden (ohne Absage)?"""
+    t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone()
+    return bool(t and t["nummer"] and anrufe_an(t) and anrufzeit(t, tag)
+                and any(d["person_id"] == pid for d in faellige_dienste(tag)))
+
+
+def abgesagt_am(pid, tag):
+    return bool(db().execute("SELECT 1 FROM hd_anruf_abgesagt WHERE person_id = ? AND datum = ?",
+                             (pid, tag.isoformat())).fetchone())
+
+
+def naechster_anruf(pid):
+    """Der naechste Anruftag, den man absagen kann: heute, solange die
+    Anrufzeit noch nicht erreicht und noch kein Versuch gelaufen ist (wer um
+    1 Uhr nachts absagt, meint 6 Uhr), sonst morgen. status: geplant,
+    abgesagt, keiner (kein Anruf geplant) oder aus (Anrufe von der Verwaltung
+    ausgeschaltet)."""
+    t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone()
+    tag = heute()
+    uhr = jetzt().strftime("%H:%M")
+    if (anruf_geplant(pid, tag) and uhr < anrufzeit(t, tag)
+            and not db().execute("SELECT 1 FROM hd_anrufe WHERE datum = ? AND person_id = ? AND versuch > 0",
+                                 (tag.isoformat(), pid)).fetchone()):
+        wann = "heute"
+    else:
+        tag += datetime.timedelta(days=1)
+        wann = "morgen"
+    if not anrufe_an(t):
+        status = "aus"
+    elif not anruf_geplant(pid, tag):
+        status = "keiner"
+    else:
+        status = "abgesagt" if abgesagt_am(pid, tag) else "geplant"
+    return {"datum": tag.isoformat(), "tag": datum_text(tag), "wann": wann, "status": status,
+            "zeit": anrufzeit(t, tag) if t else ""}
 
 
 @app.post("/api/hausdienst/anrufzeit")
@@ -1909,6 +1964,32 @@ def api_hausdienst_anrufzeit(b):
         return fehler(fehl)
     db().execute("INSERT INTO hd_telefon (person_id, zeit, tage) VALUES (?, ?, ?)"
                  " ON CONFLICT(person_id) DO UPDATE SET zeit = excluded.zeit, tage = excluded.tage", (pid, zeit, tage))
+    db().commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/hausdienst/anruf")
+@braucht("voll")
+def api_hausdienst_anruf(b):
+    """Den naechsten Morgenanruf absagen oder wieder annehmen. Gilt nur fuer
+    den Tag, den die App zeigt - der Server prueft das Datum."""
+    pid = person_von(b) if ist_familie(b) else None
+    if not pid:
+        return fehler("Du stehst noch nicht im Hausdienst-Plan.", 403)
+    e = json_eingabe()
+    n = naechster_anruf(pid)
+    if str(e.get("datum")) != n["datum"]:
+        return fehler("Der nächste Anruf hat sich geändert – bitte neu laden.")
+    if n["status"] in ("aus", "keiner"):
+        return fehler("Für diesen Tag ist kein Anruf geplant.")
+    tag = datum_lesen(n["datum"])
+    if e.get("absagen"):
+        db().execute("INSERT OR IGNORE INTO hd_anruf_abgesagt (person_id, datum, zeit) VALUES (?, ?, ?)",
+                     (pid, n["datum"], int(time.time())))
+        protokollieren("hd_anruf_absage", b, datum_text(tag))
+    else:
+        db().execute("DELETE FROM hd_anruf_abgesagt WHERE person_id = ? AND datum = ?", (pid, n["datum"]))
+        protokollieren("hd_anruf_wieder", b, datum_text(tag))
     db().commit()
     return jsonify({"ok": True})
 
@@ -2021,7 +2102,7 @@ def api_hausdienst_zurueckziehen(b, aid):
 # ------------------------------------------------------------------
 
 BW_STUNDE = 16
-BW_WERTE = {3: "gut", 2: "naja", 1: "nicht so gut", 0: "gar nicht"}
+BW_WERTE = {3: "top", 2: "gut", 1: "nicht so gut", 0: "gar nicht"}
 # Aelteres wird taeglich geloescht
 BW_AUFBEWAHREN_MONATE = 3
 BW_ZUSAMMENFASSUNG_STUNDE = 21
@@ -2068,7 +2149,7 @@ def bewertung_speichern(von_pid, e):
     Verwaltung). Gibt (Fehlertext, Protokolltext) zurueck."""
     wert = ganzzahl(e.get("wert"))
     if wert not in BW_WERTE:
-        return "Bitte gut, naja, nicht so gut oder gar nicht wählen.", None
+        return "Bitte top, gut, nicht so gut oder gar nicht wählen.", None
     if not bewertung_offen():
         return f"Bewertet wird heute ab {BW_STUNDE} Uhr.", None
     tag = heute()
@@ -2108,7 +2189,7 @@ def api_hausdienst_bewertung(b):
 
 def bewertung_auswerten(tag=None):
     """Je Person und Zeitraum (woche = Mo bis So, monat, gesamt = alles
-    Gespeicherte): Durchschnitt, Anzahl, Verteilung (gut, naja, nicht so gut,
+    Gespeicherte): Durchschnitt, Anzahl, Verteilung (top, gut, nicht so gut,
     gar nicht) und wie viele Dienste bis heute gar keine Bewertung haben."""
     tag = tag or heute()
     montag = tag - datetime.timedelta(days=tag.weekday())
@@ -2182,6 +2263,7 @@ def bewertung_tagesarbeit(zeitpunkt=None):
     if einstellung_lesen("hd_bw_aufgeraeumt") != tag.isoformat():
         db().execute("DELETE FROM hd_bewertungen WHERE datum < ?",
                      (monate_zurueck(tag, BW_AUFBEWAHREN_MONATE).isoformat(),))
+        db().execute("DELETE FROM hd_anruf_abgesagt WHERE datum < ?", (tag.isoformat(),))
         db().commit()
         einstellung_setzen("hd_bw_aufgeraeumt", tag.isoformat())
     if zeitpunkt.hour < BW_ZUSAMMENFASSUNG_STUNDE:
@@ -2318,7 +2400,7 @@ def anrufe_pruefen(jetzt=None):
         je_person.setdefault(d["person_id"], []).append(d)
     for pid, dienste in sorted(je_person.items()):
         t = db().execute("SELECT * FROM hd_telefon WHERE person_id = ?", (pid,)).fetchone()
-        if not t or not t["nummer"] or not anrufzeit(t, tag):
+        if not t or not t["nummer"] or not anrufe_an(t) or not anrufzeit(t, tag) or abgesagt_am(pid, tag):
             continue
         bisher = db().execute("SELECT * FROM hd_anrufe WHERE datum = ? AND person_id = ? AND versuch > 0"
                               " ORDER BY versuch", (tag.isoformat(), pid)).fetchall()
@@ -2337,8 +2419,8 @@ def anrufe_pruefen(jetzt=None):
     if not HD_ANFRAGE_VON <= jetzt.hour < HD_ANFRAGE_BIS:
         return
     for a in anfragen_laden("f.status = 'offen' AND f.angerufen IS NULL AND f.datum >= ?", (tag.isoformat(),)):
-        t = db().execute("SELECT nummer FROM hd_telefon WHERE person_id = ?", (a["an_id"],)).fetchone()
-        if not t or not t["nummer"]:
+        t = db().execute("SELECT nummer, anrufe FROM hd_telefon WHERE person_id = ?", (a["an_id"],)).fetchone()
+        if not t or not t["nummer"] or not anrufe_an(t):
             continue
         kennung = secrets.token_hex(12)
         db().execute("UPDATE hd_anfragen SET angerufen = ?, kennung = ? WHERE id = ?",
@@ -2592,7 +2674,8 @@ def api_admin_hausdienst():
             "standard": HD_ANSAGE_STANDARD,
             "sip_addon": SIP_ADDON, "sip_konto": SIP_KONTO, "sip_server": SIP_SERVER,
         },
-        "telefon": {r["person_id"]: {"nummer": r["nummer"], "zeit": r["zeit"], "tage": json.loads(r["tage"] or "{}")}
+        "telefon": {r["person_id"]: {"nummer": r["nummer"], "zeit": r["zeit"], "tage": json.loads(r["tage"] or "{}"),
+                                     "anrufe": bool(r["anrufe"]), "abgesagt": abgesagt_text(r["person_id"])}
                     for r in db().execute("SELECT * FROM hd_telefon")},
         "anrufliste": [dict(r) for r in db().execute(
             "SELECT a.datum, a.versuch, a.zeit, a.bestaetigt, a.fehler, b.name FROM hd_anrufe a"
@@ -2726,6 +2809,13 @@ def api_admin_hd_anrufe():
     return jsonify({"ok": True})
 
 
+def abgesagt_text(pid):
+    """Fuer die Verwaltung: der naechste Anruf ist abgesagt, sonst leer."""
+    n = naechster_anruf(pid)
+    tag = datum_lesen(n["datum"])
+    return f"{tag.day}.{tag.month}." if n["status"] == "abgesagt" else ""
+
+
 @app.post("/api/admin/hausdienst/telefon")
 @nur_ingress
 def api_admin_hd_telefon():
@@ -2743,6 +2833,23 @@ def api_admin_hd_telefon():
                  " ON CONFLICT(person_id) DO UPDATE SET nummer = excluded.nummer, zeit = excluded.zeit,"
                  " tage = excluded.tage", (pid, nummer, zeit, tage))
     db().commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/hausdienst/anrufe_person")
+@nur_ingress
+def api_admin_hd_anrufe_person():
+    """Anrufe fuer eine Person ganz ein- oder ausschalten."""
+    e = json_eingabe()
+    pid = person_id(e.get("person_id"))
+    if not pid:
+        return fehler("Diese Person gibt es im Hausdienst nicht.")
+    an = 1 if e.get("an") else 0
+    db().execute("INSERT INTO hd_telefon (person_id, anrufe) VALUES (?, ?)"
+                 " ON CONFLICT(person_id) DO UPDATE SET anrufe = excluded.anrufe", (pid, an))
+    db().commit()
+    name = db().execute("SELECT name FROM hd_personen WHERE id = ?", (pid,)).fetchone()["name"]
+    protokollieren("admin_hd_anrufe_an" if an else "admin_hd_anrufe_aus", None, name, name="Admin")
     return jsonify({"ok": True})
 
 

@@ -63,7 +63,7 @@ ZUSTAENDE = {}
 @pytest.fixture(autouse=True)
 def sauber():
     conn = server.verbinden()
-    conn.executescript("DELETE FROM hd_bewertungen; DELETE FROM hd_anfragen; DELETE FROM hd_anrufe; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
+    conn.executescript("DELETE FROM hd_bewertungen; DELETE FROM hd_anfragen; DELETE FROM hd_anrufe; DELETE FROM hd_anruf_abgesagt; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
                        " DELETE FROM hd_plan; DELETE FROM hd_aufgaben; DELETE FROM hd_personen;"
                        " DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;"
                        " DELETE FROM einstellungen;")
@@ -1314,6 +1314,150 @@ def test_testanruf(anrufe, ha):
     assert r.status_code == 400  # keine Nummer
 
 
+def anruf_naechster(c):
+    return c.get("/api/hausdienst").json["anrufzeit"]["naechster"]
+
+
+def schalten(anrufe, wer, an):
+    r = post(anrufe["admin"], "/api/admin/hausdienst/anrufe_person", {"person_id": anrufe["ids"][wer], "an": an},
+             environ_base=INGRESS)
+    assert r.status_code == 200, r.json
+
+
+def test_anrufe_je_person_aus(anrufe, ha):
+    anna, ids = anrufe["anna"], anrufe["ids"]
+    schalten(anrufe, "anna", False)
+    d = anrufe["admin"].get("/api/admin/hausdienst", environ_base=INGRESS).json
+    assert d["telefon"][str(ids["anna"])]["anrufe"] is False and d["telefon"][str(ids["anna"])]["nummer"]
+    pruefen(um(7, 15))
+    pruefen(um(7, 45))
+    assert waehlen(ha) == []
+    assert anruf_naechster(anna)["status"] == "aus"
+    assert post(anna, "/api/hausdienst/anruf", {"datum": anruf_naechster(anna)["datum"], "absagen": True}).status_code == 400
+    # Tauschanfrage: kein Anruf, und nur noch ueber die App erreichbar
+    # (Anna bleibt in der App erreichbar: aktiver Familien-Zugang)
+    assert [f["name"] for f in anrufe["bert"].get("/api/hausdienst").json["familie"]] == ["Anna"]
+    r = post(anrufe["bert"], "/api/hausdienst/anfrage",
+             {"datum": "2026-11-03", "aufgabe_id": anrufe["auf"]["Flur"], "an_id": ids["anna"]})
+    assert r.status_code == 200, r.json
+    pruefen(um(12, 0))
+    assert waehlen(ha) == []
+    # Der Testanruf bleibt moeglich
+    r = post(anrufe["admin"], "/api/admin/hausdienst/testanruf", {"person_id": ids["anna"]}, environ_base=INGRESS)
+    assert r.status_code == 200 and len(waehlen(ha)) == 1
+    # Wieder an: die offene Anfrage wird jetzt angerufen
+    schalten(anrufe, "anna", True)
+    conn = server.verbinden()
+    conn.execute("UPDATE hd_anrufe SET zeit = 0")  # der Testanruf lief "jetzt", nicht um 12 Uhr
+    conn.commit()
+    conn.close()
+    pruefen(um(12, 30))
+    assert len(waehlen(ha)) == 2
+
+
+def test_erreichbar_nur_mit_anrufen_oder_zugang(anrufe):
+    # Person ohne Zugang, aber mit Nummer
+    admin, ids = anrufe["admin"], anrufe["ids"]
+    r = post(admin, "/api/admin/hausdienst/person", {"name": "Carla"}, environ_base=INGRESS)
+    assert r.status_code == 200, r.json
+    cid = next(p["id"] for p in admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["personen"] if p["name"] == "Carla")
+    post(admin, "/api/admin/hausdienst/telefon", {"person_id": cid, "nummer": "0172999", "zeit": "07:00"}, environ_base=INGRESS)
+    assert "Carla" in [f["name"] for f in anrufe["anna"].get("/api/hausdienst").json["familie"]]
+    post(admin, "/api/admin/hausdienst/anrufe_person", {"person_id": cid, "an": False}, environ_base=INGRESS)
+    assert "Carla" not in [f["name"] for f in anrufe["anna"].get("/api/hausdienst").json["familie"]]
+
+
+def test_anruf_fuer_morgen_absagen_und_zuruecknehmen(anrufe, ha, monkeypatch):
+    anna, bert = anrufe["anna"], anrufe["bert"]
+    sonntag = MONTAG - server.datetime.timedelta(days=1)
+    # Sonntagabend: der naechste Anruf ist der am Montag um 07:15 (montags abweichend)
+    monkeypatch.setattr(server, "heute", lambda: sonntag)
+    monkeypatch.setattr(server, "jetzt", lambda: um(20, tag=sonntag))
+    n = anruf_naechster(anna)
+    assert n == {"datum": "2026-11-02", "tag": "Montag, 2.11.", "wann": "morgen", "status": "geplant", "zeit": "07:15"}
+    # Falsches Datum und fremde Person
+    assert post(anna, "/api/hausdienst/anruf", {"datum": "2026-11-03", "absagen": True}).status_code == 400
+    assert post(anna, "/api/hausdienst/anruf", {"absagen": True}).status_code == 400
+    assert post(anna, "/api/hausdienst/anruf", {"datum": "2026-11-02", "absagen": True}).status_code == 200
+    assert anruf_naechster(anna)["status"] == "abgesagt"
+    # Bert hat davon nichts, und Annas Absage trifft nur Anna
+    assert anruf_naechster(bert)["status"] == "keiner"
+    assert post(bert, "/api/hausdienst/anruf", {"datum": "2026-11-02", "absagen": True}).status_code == 400
+    assert anrufe["admin"].get("/api/admin/hausdienst", environ_base=INGRESS).json["telefon"][
+        str(anrufe["ids"]["anna"])]["abgesagt"] == "2.11."
+    monkeypatch.setattr(server, "heute", lambda: MONTAG)
+    pruefen(um(7, 15))
+    pruefen(um(7, 45))
+    assert waehlen(ha) == []
+    # Zurueckgenommen: der Anruf kommt wieder (auch der zweite)
+    monkeypatch.setattr(server, "heute", lambda: sonntag)
+    assert post(anna, "/api/hausdienst/anruf", {"datum": "2026-11-02", "absagen": False}).status_code == 200
+    assert anruf_naechster(anna)["status"] == "geplant"
+    monkeypatch.setattr(server, "heute", lambda: MONTAG)
+    pruefen(um(7, 15))
+    pruefen(um(7, 45))
+    assert len(waehlen(ha)) == 2
+    aktionen = [r["aktion"] for r in server.verbinden().execute("SELECT aktion FROM protokoll ORDER BY id")]
+    assert "hd_anruf_absage" in aktionen and "hd_anruf_wieder" in aktionen
+
+
+def test_absage_um_ein_uhr_nachts_meint_heute(anrufe, ha, monkeypatch):
+    anna = anrufe["anna"]
+    monkeypatch.setattr(server, "jetzt", lambda: um(1))
+    n = anruf_naechster(anna)
+    assert n["wann"] == "heute" and n["datum"] == "2026-11-02" and n["zeit"] == "07:15"
+    assert post(anna, "/api/hausdienst/anruf", {"datum": "2026-11-02", "absagen": True}).status_code == 200
+    pruefen(um(7, 15))
+    assert waehlen(ha) == []
+    # Nach der Anrufzeit geht es um den naechsten Tag (Dienstag: Anna hat keinen Dienst)
+    monkeypatch.setattr(server, "jetzt", lambda: um(8))
+    n = anruf_naechster(anna)
+    assert n["wann"] == "morgen" and n["status"] == "keiner"
+    assert post(anna, "/api/hausdienst/anruf", {"datum": "2026-11-02", "absagen": False}).status_code == 400
+
+
+def test_nach_dem_ersten_versuch_zielt_die_absage_auf_morgen(anrufe, ha, monkeypatch):
+    monkeypatch.setattr(server, "jetzt", lambda: um(7, 20))
+    pruefen(um(7, 15))
+    assert len(waehlen(ha)) == 1
+    # Anrufzeit 07:15 ist erreicht, ein Versuch lief -> morgen (kein Dienst)
+    assert anruf_naechster(anrufe["anna"])["wann"] == "morgen"
+
+
+def test_alte_absagen_werden_aufgeraeumt(anrufe, monkeypatch):
+    ids = anrufe["ids"]
+    conn = server.verbinden()
+    for datum in ("2026-11-01", "2026-11-02", "2026-11-09"):
+        conn.execute("INSERT INTO hd_anruf_abgesagt (person_id, datum, zeit) VALUES (?, ?, 0)", (ids["anna"], datum))
+    conn.commit()
+    conn.close()
+    with server.app.app_context():
+        server.bewertung_tagesarbeit(um(10))
+        rest = [r["datum"] for r in server.db().execute("SELECT datum FROM hd_anruf_abgesagt ORDER BY datum")]
+    assert rest == ["2026-11-02", "2026-11-09"]
+
+
+def test_telefon_tabelle_ohne_neue_spalte_wird_migriert():
+    import sqlite3
+    ordner = tempfile.mkdtemp(prefix="tuer-migration-")
+    alt = os.path.join(ordner, "alt.db")
+    conn = sqlite3.connect(alt)
+    conn.execute("CREATE TABLE hd_telefon (person_id INTEGER PRIMARY KEY, nummer TEXT NOT NULL DEFAULT '',"
+                 " zeit TEXT NOT NULL DEFAULT '', tage TEXT NOT NULL DEFAULT '{}')")
+    conn.execute("INSERT INTO hd_telefon (person_id, nummer, zeit) VALUES (1, '0170', '06:30')")
+    conn.commit()
+    conn.close()
+    sauber_alt = server.DB_PFAD
+    server.DB_PFAD = alt
+    try:
+        server.db_einrichten()
+        conn = sqlite3.connect(alt)
+        assert conn.execute("SELECT anrufe FROM hd_telefon").fetchall() == [(1,)]
+        conn.close()
+    finally:
+        server.DB_PFAD = sauber_alt
+
+
 def test_antrag_grenzen(hausdienst):
     anna, admin, ids, auf = hausdienst["anna"], hausdienst["admin"], hausdienst["ids"], hausdienst["auf"]
     # Weit in der Zukunft geht nicht (und darf die Verwaltung nicht lahmlegen)
@@ -1493,11 +1637,12 @@ def test_tausch_nachts_erst_am_morgen(anrufe, ha, monkeypatch):
 
 def test_anrufzeit_selbst_einstellen(anrufe):
     anna, admin, ids = anrufe["anna"], anrufe["admin"], anrufe["ids"]
-    assert anna.get("/api/hausdienst").json["anrufzeit"] == {"zeit": "06:30", "tage": {"0": "07:15"}, "nummer": True}
+    z = anna.get("/api/hausdienst").json["anrufzeit"]
+    assert {k: z[k] for k in ("zeit", "tage", "nummer")} == {"zeit": "06:30", "tage": {"0": "07:15"}, "nummer": True}
     assert post(anna, "/api/hausdienst/anrufzeit", {"zeit": "6:45"}).status_code == 400
     assert post(anna, "/api/hausdienst/anrufzeit", {"zeit": "06:45", "tage": {"5": "09:00"}}).status_code == 200
     t = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["telefon"][str(ids["anna"])]
-    assert t == {"nummer": "01701234567", "zeit": "06:45", "tage": {"5": "09:00"}}
+    assert t == {"nummer": "01701234567", "zeit": "06:45", "tage": {"5": "09:00"}, "anrufe": True, "abgesagt": ""}
     # Ohne Nummer geht es auch - die traegt dann die Verwaltung nach
     assert post(anrufe["bert"], "/api/hausdienst/anrufzeit", {"zeit": "07:00"}).status_code == 200
     assert anrufe["bert"].get("/api/hausdienst").json["anrufzeit"]["nummer"] is False

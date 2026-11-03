@@ -1,5 +1,18 @@
 # Änderungen
 
+## 0.16.0
+
+- Hausdienst: **Anrufe je Person.** Die Verwaltung schaltet Anrufe für jede
+  Person ein oder aus (Schalter in der Anruftabelle). Aus heißt: weder
+  Morgenanruf noch Anruf bei Tauschanfragen; Anfragen laufen dann nur über die
+  App. Der Testanruf geht weiter.
+- Hausdienst: **Nächsten Anruf absagen.** In der App steht „Nächster Anruf:
+  Mittwoch, 4.11. um 06:00“ mit „Nicht anrufen“ und „Doch anrufen“. Vor der
+  Anrufzeit gilt die Absage für heute, sonst für morgen. Beide Anrufe des Tages
+  entfallen; Tauschanfragen bleiben. Die Verwaltung sieht die Absage.
+- Hausdienst-Bewertung: Die Stufen heißen jetzt top, gut, nicht so gut, gar nicht
+  (vorher gut, naja, …); gespeicherte Bewertungen bleiben unverändert.
+
 ## 0.15.0
 
 - Hausdienst: **Bewertung.** Ab 16 Uhr bewertet jeder die heutigen Dienste der
