@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.14.1
+
+- Verwaltung: Lange Aufgabennamen im Plan brechen um, statt in die Montagsspalte
+  zu laufen.
+
 ## 0.14.0
 
 - Verwaltung: **Ein Plan statt zwei Raster.** Eine Tabelle (Aufgaben × Tage) mit
