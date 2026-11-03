@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.14.0
+
+- Verwaltung: **Ein Plan statt zwei Raster.** Eine Tabelle (Aufgaben × Tage) mit
+  Umschalter „Jede Woche (Vorlage)“ und den nächsten zwei Wochen. Zelle antippen,
+  Personen abhaken – fertig. Jede Person hat ihre Farbe, abweichende Tage sind
+  markiert, „↺ wie Vorlage“ setzt eine Zelle zurück. Darunter zählt eine Zeile
+  die Dienste je Person. Auf dem Handy erscheint eine Liste pro Tag.
+
 ## 0.13.1
 
 - App: „Dein Plan“ zeigt die nächsten drei Dienste, die übrigen klappen mit

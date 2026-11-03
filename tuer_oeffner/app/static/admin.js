@@ -271,74 +271,248 @@ async function hdSenden(pfad, daten, frage) {
   return ok;
 }
 
-/* Kleines Formular "Wer? Was? +" fuer einen weiteren Dienst */
-function dienstDazu(beschriftung, senden) {
-  const f = el("form", null, "hd-neu");
-  const wer = liste("person_id", personenListe(), "Wer?");
-  const was = liste("aufgabe_id", aufgabenListe(), "Was?");
-  wer.required = was.required = true;
-  wer.setAttribute("aria-label", "Wer");
-  was.setAttribute("aria-label", "Welche Aufgabe");
-  const plus = el("button", "+", "knopf klein");
-  plus.setAttribute("aria-label", beschriftung);
-  f.append(wer, was, plus);
-  f.onsubmit = (ev) => {
-    ev.preventDefault();
-    senden(Number(wer.value), Number(was.value));
-  };
-  return f;
-}
-
 function loeschKnopf(beschriftung, fn) {
   const k = knopf("×", fn, "gefahr");
   k.setAttribute("aria-label", beschriftung);
   return k;
 }
 
-function wocheZeigen(d) {
-  $("#hd-woche").replaceChildren(...d.wochentage.map((name, tag) => {
-    const spalte = el("div", null, "hd-tag");
-    spalte.append(el("h4", name));
-    d.plan.filter((p) => p.wochentag === tag).forEach((p) => {
-      const z = el("div", null, "hd-dienst");
-      z.append(el("span", `${p.name}: ${p.aufgabe}`),
-        loeschKnopf(`${p.name}: ${p.aufgabe} am ${name} entfernen`, () => hdSenden(`plan/${p.id}/loeschen`, {})));
-      spalte.append(z);
-    });
-    spalte.append(dienstDazu(`Dienst am ${name} hinzufügen`,
-      (person_id, aufgabe_id) => hdSenden("plan", { wochentag: tag, person_id, aufgabe_id })));
-    return spalte;
-  }));
+/* ---------- Plan: Vorlage und die nächsten zwei Wochen in einer Tabelle ----------
+   Ansicht "vorlage" = Wochenplan, "w0"/"w1" = die 14 Tage in zwei Blöcken.
+   Das Popover zum Bearbeiten ist ein einziges Element, das nach jedem
+   Neuladen an derselben Zelle wieder geöffnet wird. */
+
+const PERSONEN_FARBEN = ["#2f7fd0", "#d9822b", "#2e9d5f", "#b24fb5", "#d04a4a", "#1fa3a3", "#8a7a1f", "#6a63d6"];
+const plan = { ansicht: "vorlage", offen: null, daten: null };
+try {
+  plan.ansicht = localStorage.getItem("hd-ansicht") || "vorlage";
+} catch (e) { /* ohne Speicher bleibt es bei der Vorlage */ }
+
+const personFarbe = (id) => PERSONEN_FARBEN[Math.max(0, hd.personen.findIndex((p) => p.id === id)) % PERSONEN_FARBEN.length];
+
+function chip(name, person_id, zusatz, klasse = "") {
+  const c = el("span", name, "hd-chip " + klasse);
+  c.style.setProperty("--pf", personFarbe(person_id));
+  if (zusatz) c.append(el("small", " " + zusatz));
+  return c;
 }
 
-function tageZeigen(d) {
-  $("#hd-tage").replaceChildren(...d.tage.map((t) => {
-    const karte = el("div", null, "hd-tag");
-    karte.append(el("h4", t.tag));
-    if (!t.dienste.length) karte.append(el("p", "frei", "leise"));
-    t.dienste.forEach((x) => {
-      const z = el("div", null, "hd-dienst" + (x.abweichung_id ? " geaendert" : "") + (x.pausiert ? " aus" : ""));
-      z.append(el("span", x.aufgabe + (x.pausiert ? " (Pause)" : "")));
-      if (x.plan_id) {
-        // Person wechseln oder ausfallen lassen
-        const leute = personenListe();
-        if (x.person_id && !leute.some(([id]) => id === x.person_id)) leute.push([x.person_id, x.name]);
-        const wer = liste("wer", leute, "– entfällt –");
-        wer.value = x.person_id ?? "";
-        wer.setAttribute("aria-label", `Wer macht ${x.aufgabe} am ${t.tag}`);
-        wer.onchange = () => hdSenden("tag", { datum: t.datum, plan_id: x.plan_id, person_id: wer.value ? Number(wer.value) : null });
-        z.append(wer);
-        if (x.abweichung_id) z.append(knopf("wie im Plan", () => hdSenden(`tag/${x.abweichung_id}/loeschen`, {})));
-      } else {
-        z.append(el("span", `${x.name} (nur an diesem Tag)`, "leise"),
-          loeschKnopf(`${x.aufgabe} am ${t.tag} entfernen`, () => hdSenden(`tag/${x.abweichung_id}/loeschen`, {})));
-      }
-      karte.append(z);
+const kurzDatum = (iso) => `${Number(iso.slice(8))}.${Number(iso.slice(5, 7))}.`;
+
+function ansichten(d) {
+  const bloecke = [d.tage.slice(0, 7), d.tage.slice(7, 14)].filter((b) => b.length);
+  const liste = [{ id: "vorlage", text: "Jede Woche (Vorlage)" }];
+  bloecke.forEach((b, i) => {
+    const von = b[0].datum, bis = b[b.length - 1].datum;
+    const text = von.slice(5, 7) === bis.slice(5, 7)
+      ? `${Number(von.slice(8))}.–${kurzDatum(bis)}` : `${kurzDatum(von)}–${kurzDatum(bis)}`;
+    liste.push({ id: "w" + i, text, tage: b });
+  });
+  return liste;
+}
+
+/* Inhalt einer Zelle: Aufgabe an Spalte i in der gewählten Ansicht */
+function zelleInhalt(d, ansicht, i, aufgabe) {
+  if (!ansicht.tage) {
+    const items = d.plan.filter((p) => p.wochentag === i && p.aufgabe_id === aufgabe.id)
+      .map((p) => ({ person_id: p.person_id, name: p.name, plan_id: p.id }));
+    return { items, tag: d.wochentage[i], datum: null, abweichend: false };
+  }
+  const t = ansicht.tage[i];
+  const items = t.dienste.filter((x) => x.aufgabe_id === aufgabe.id).map((x) => {
+    const urspruenglich = x.entfaellt ? d.plan.find((p) => p.id === x.plan_id) : null;
+    return { ...x, name: x.name || (urspruenglich && urspruenglich.name) || "?" };
+  });
+  return { items, tag: t.tag, datum: t.datum, abweichend: items.some((x) => x.abweichung_id) };
+}
+
+function zelleKnopf(d, ansicht, i, aufgabe) {
+  const z = zelleInhalt(d, ansicht, i, aufgabe);
+  const schluessel = `${ansicht.id}|${i}|${aufgabe.id}`;
+  const k = el("button", null, "hd-zelle" + (z.abweichend ? " abweichend" : ""));
+  k.type = "button";
+  k.dataset.schluessel = schluessel;
+  k.setAttribute("aria-label", `${aufgabe.name} am ${z.tag} bearbeiten`);
+  k.setAttribute("aria-expanded", plan.offen === schluessel ? "true" : "false");
+  if (!z.items.length) k.append(el("span", "–", "leise"));
+  z.items.forEach((x) => {
+    if (x.entfaellt) k.append(chip(x.name, x.person_id, "entfällt", "aus"));
+    else if (x.pausiert) k.append(chip(x.name, x.person_id, "Pause", "pause"));
+    else k.append(chip(x.name, x.person_id));
+  });
+  k.onclick = () => {
+    if (plan.offen === schluessel) return popSchliessen();
+    plan.offen = schluessel;
+    popZeigen();
+  };
+  return k;
+}
+
+function planZeigen(d) {
+  plan.daten = d;
+  const alle = ansichten(d);
+  let ansicht = alle.find((a) => a.id === plan.ansicht);
+  if (!ansicht) ansicht = alle[0];
+  plan.ansicht = ansicht.id;
+  plan.aktiv = ansicht;
+
+  const umschalter = el("div", null, "hd-umschalter");
+  umschalter.setAttribute("role", "group");
+  umschalter.setAttribute("aria-label", "Ansicht");
+  alle.forEach((a) => {
+    const k = knopf(a.text, () => {
+      plan.ansicht = a.id;
+      try { localStorage.setItem("hd-ansicht", a.id); } catch (e) { /* egal */ }
+      popSchliessen();
+      planZeigen(plan.daten);
+    }, a.id === ansicht.id ? "haupt" : "");
+    k.setAttribute("aria-pressed", a.id === ansicht.id ? "true" : "false");
+    umschalter.append(k);
+  });
+
+  const spalten = ansicht.tage
+    ? ansicht.tage.map((t) => t.tag.replace(", ", " "))
+    : d.wochentage;
+
+  // Tabelle für breite Bildschirme
+  const tabelle = el("table", null, "hd-tabelle");
+  const kopf = el("tr");
+  kopf.append(el("th", "Aufgabe"));
+  spalten.forEach((s) => { const th = el("th", s); th.scope = "col"; kopf.append(th); });
+  const thead = el("thead");
+  thead.append(kopf);
+  const tbody = el("tbody");
+  d.aufgaben.forEach((a) => {
+    const tr = el("tr");
+    const th = el("th", a.name);
+    th.scope = "row";
+    tr.append(th);
+    spalten.forEach((_, i) => { const td = el("td"); td.append(zelleKnopf(d, ansicht, i, a)); tr.append(td); });
+    tbody.append(tr);
+  });
+  tabelle.append(thead, tbody);
+  const rahmen = el("div", null, "hd-rahmen");
+  rahmen.append(tabelle);
+
+  // Liste pro Tag für das Handy
+  const tage = el("div", null, "hd-tageliste");
+  spalten.forEach((s, i) => {
+    const block = el("div", null, "hd-tagblock");
+    block.append(el("h4", s));
+    d.aufgaben.forEach((a) => {
+      const zeile = el("div", null, "hd-tagzeile");
+      zeile.append(el("span", a.name, "hd-aufgabe"), zelleKnopf(d, ansicht, i, a));
+      block.append(zeile);
     });
-    karte.append(dienstDazu(`Dienst nur am ${t.tag} hinzufügen`,
-      (person_id, aufgabe_id) => hdSenden("tag", { datum: t.datum, person_id, aufgabe_id })));
-    return karte;
-  }));
+    tage.append(block);
+  });
+
+  // Zählzeile
+  const zaehler = el("p", null, "hd-zaehler-zeile");
+  zaehler.append("Dienste: ");
+  d.personen.forEach((p, n) => {
+    const anzahl = ansicht.tage
+      ? ansicht.tage.reduce((s, t) => s + t.dienste.filter((x) => x.person_id === p.id && !x.entfaellt && !x.pausiert).length, 0)
+      : d.plan.filter((x) => x.person_id === p.id).length;
+    if (n) zaehler.append(" · ");
+    const s = el("span", `${p.name} ${anzahl}`, "hd-zaehl");
+    s.style.setProperty("--pf", personFarbe(p.id));
+    zaehler.append(s);
+  });
+  if (!d.personen.length) zaehler.hidden = true;
+
+  const leer = !d.aufgaben.length;
+  $("#hd-plan").replaceChildren(umschalter, ...(leer ? [] : [rahmen, tage, zaehler]));
+  if (plan.offen) popZeigen();
+}
+
+/* ---------- Popover einer Zelle ---------- */
+
+function popSchliessen() {
+  plan.offen = null;
+  const p = $("#hd-pop");
+  if (p) p.remove();
+  document.querySelectorAll(".hd-zelle[aria-expanded='true']").forEach((k) => k.setAttribute("aria-expanded", "false"));
+}
+
+function popSetzen(d, ansicht, i, aufgabe, z, person, an) {
+  if (!ansicht.tage) {
+    if (an) return hdSenden("plan", { wochentag: i, person_id: person.id, aufgabe_id: aufgabe.id });
+    const x = z.items.find((y) => y.person_id === person.id);
+    return hdSenden(`plan/${x.plan_id}/loeschen`, {});
+  }
+  if (an) {
+    const frei = z.items.find((x) => x.entfaellt && x.plan_id);
+    return hdSenden("tag", frei
+      ? { datum: z.datum, plan_id: frei.plan_id, person_id: person.id }
+      : { datum: z.datum, person_id: person.id, aufgabe_id: aufgabe.id });
+  }
+  const x = z.items.find((y) => y.person_id === person.id && !y.entfaellt);
+  return x.plan_id
+    ? hdSenden("tag", { datum: z.datum, plan_id: x.plan_id, person_id: null })
+    : hdSenden(`tag/${x.abweichung_id}/loeschen`, {});
+}
+
+async function popZuruecksetzen(z) {
+  try {
+    for (const x of z.items.filter((y) => y.abweichung_id)) await api(`admin/hausdienst/tag/${x.abweichung_id}/loeschen`, {});
+    melde("");
+  } catch (e) {
+    melde(e.message);
+  }
+  hausdienstLaden();
+}
+
+function popZeigen() {
+  const d = plan.daten;
+  const [ansichtId, spalte, aufgabeId] = plan.offen.split("|");
+  const ansicht = ansichten(d).find((a) => a.id === ansichtId);
+  const aufgabe = d.aufgaben.find((a) => a.id === Number(aufgabeId));
+  const anker = [...document.querySelectorAll(".hd-zelle")].filter((k) => k.dataset.schluessel === plan.offen && k.offsetParent)[0];
+  if (!ansicht || !aufgabe || !anker) return popSchliessen();
+  const i = Number(spalte);
+  const z = zelleInhalt(d, ansicht, i, aufgabe);
+
+  const pop = el("div", null, "hd-pop");
+  pop.id = "hd-pop";
+  pop.setAttribute("role", "dialog");
+  pop.setAttribute("aria-label", `${aufgabe.name} am ${z.tag}`);
+  pop.append(el("h4", `${aufgabe.name} · ${z.tag}`));
+  const vergeben = new Set(z.items.filter((x) => !x.entfaellt).map((x) => x.person_id));
+  d.personen.forEach((p) => {
+    const l = el("label", null, "hd-wahl");
+    const h = el("input");
+    h.type = "checkbox";
+    h.checked = vergeben.has(p.id);
+    h.onchange = () => popSetzen(d, ansicht, i, aufgabe, z, p, h.checked);
+    l.append(h, chip(p.name, p.id));
+    pop.append(l);
+  });
+  if (!d.personen.length) pop.append(el("p", "Noch niemand eingetragen.", "leise"));
+  const fuss = el("div", null, "hd-pop-fuss");
+  if (z.abweichend) fuss.append(knopf("↺ wie Vorlage", () => popZuruecksetzen(z)));
+  fuss.append(knopf("Schließen", popSchliessen));
+  pop.append(fuss);
+  const alt = $("#hd-pop");
+  if (alt) alt.remove();
+  document.body.append(pop);
+  document.querySelectorAll(".hd-zelle").forEach((k) => k.setAttribute("aria-expanded", k.dataset.schluessel === plan.offen ? "true" : "false"));
+  popPositionieren();
+}
+
+function popPositionieren() {
+  const pop = $("#hd-pop");
+  if (!pop) return;
+  const anker = [...document.querySelectorAll(".hd-zelle")].filter((k) => k.dataset.schluessel === plan.offen && k.offsetParent)[0];
+  if (!anker) return popSchliessen();
+  if (window.matchMedia("(max-width: 640px)").matches) {
+    pop.style.left = pop.style.top = ""; // unten angedockt (CSS)
+    return;
+  }
+  const r = anker.getBoundingClientRect();
+  const h = pop.offsetHeight, b = pop.offsetWidth;
+  pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - b - 8)) + "px";
+  pop.style.top = (r.bottom + 4 + h > window.innerHeight && r.top - h - 4 > 0 ? r.top - h - 4 : r.bottom + 4) + "px";
 }
 
 const HD_TAUSCH = { offen: "wartet", ja: "übernimmt", nein: "kann nicht", zurueckgezogen: "zurückgezogen", abgelaufen: "abgelaufen" };
@@ -547,12 +721,11 @@ async function hausdienstLaden() {
   hd.zugaenge = d.zugaenge;
   const hinweise = [];
   if (!d.personen.length) hinweise.push("Zuerst unten die Personen anlegen – mit oder ohne Zugang zum Türöffner.");
-  if (!d.aufgaben.length) hinweise.push("Zuerst unten die Aufgaben anlegen (z. B. Küche → Küchendienst), dann den Wochenplan füllen.");
+  if (!d.aufgaben.length) hinweise.push("Zuerst unten die Aufgaben anlegen (z. B. Küche → Küchendienst), dann im Plan eintragen, wer wann dran ist.");
   $("#hd-hinweise").replaceChildren(...hinweise.map((w) => el("p", w, "hinweis")));
   antraegeZeigen(d);
   anfragenZeigen(d);
-  wocheZeigen(d);
-  tageZeigen(d);
+  planZeigen(d);
   personenZeigen(d);
   aufgabenZeigen(d);
   pausenZeigen(d);
@@ -582,7 +755,12 @@ $("#hd-pause-neu").addEventListener("submit", async (ev) => {
 // Ein offenes "Mehr"-Menue schliesst bei einem Klick daneben
 document.addEventListener("click", (ev) => {
   document.querySelectorAll(".mehr[open]").forEach((m) => { if (!m.contains(ev.target)) m.open = false; });
+  // Plan-Popover schliesst bei einem Klick daneben
+  if (plan.offen && !ev.target.closest(".hd-pop, .hd-zelle")) popSchliessen();
 });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && plan.offen) popSchliessen(); });
+window.addEventListener("resize", popPositionieren);
+window.addEventListener("scroll", popPositionieren, true);
 
 $("#test-oeffnen").onclick = async () => {
   if (!confirm("Haustür jetzt öffnen?")) return;

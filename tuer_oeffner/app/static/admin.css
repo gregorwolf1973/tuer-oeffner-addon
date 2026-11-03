@@ -88,24 +88,51 @@ tr:last-child td { border-bottom: 0; }
 
 .hd-verwaltung h3 small { font-weight: 400; margin-left: 6px; }
 .hd-verwaltung .hinweis { margin-bottom: 10px; }
-.hd-raster { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.hd-tag {
-  background: var(--flaeche); border: 1px solid var(--rand); border-radius: 12px;
-  padding: 10px 12px; display: grid; gap: 6px; align-content: start;
+.hd-umschalter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.hd-umschalter .knopf.haupt { width: auto; padding: 10px 14px; }
+.hd-rahmen { overflow-x: auto; border: 1px solid var(--rand); border-radius: 12px; background: var(--flaeche); }
+.hd-tabelle { border-collapse: collapse; width: 100%; min-width: 640px; table-layout: fixed; }
+.hd-tabelle thead th:first-child { width: 120px; }
+.hd-tabelle th, .hd-tabelle td { border-bottom: 1px solid var(--rand); padding: 4px; text-align: left; vertical-align: top; }
+.hd-tabelle tbody tr:last-child th, .hd-tabelle tbody tr:last-child td { border-bottom: 0; }
+.hd-tabelle thead th { font-size: .85rem; white-space: nowrap; padding: 8px 6px; }
+.hd-tabelle tbody th { white-space: nowrap; padding: 8px 10px; font-weight: 600; }
+.hd-zelle {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; min-height: 36px; padding: 4px;
+  background: none; border: 1px solid transparent; border-radius: 8px; color: inherit; font: inherit; cursor: pointer; text-align: left;
 }
-.hd-tag h4 { margin: 0 0 2px; font-size: .95rem; }
-.hd-tag p { margin: 0; }
-.hd-dienst {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: .9rem;
-  background: var(--grund); border-radius: 8px; padding: 5px 8px;
+.hd-zelle:hover, .hd-zelle[aria-expanded="true"] { background: var(--grund); border-color: var(--rand); }
+.hd-zelle.abweichend { border-color: #e0b84a; box-shadow: inset 3px 0 0 #e0b84a; }
+.hd-chip {
+  --pf: var(--akzent); display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: .85rem; white-space: nowrap;
+  color: var(--text); border-left: 4px solid var(--pf);
+  background: var(--grund); background: color-mix(in srgb, var(--pf) 24%, var(--flaeche));
 }
-.hd-dienst > span:first-child { flex: 1 1 0; min-width: 0; }
-.hd-dienst.geaendert { outline: 2px solid #e0b84a; }
-.hd-dienst.aus { opacity: .6; text-decoration: line-through; }
-.hd-dienst select { flex: 1 1 100%; padding: 4px 6px; font-size: .85rem; }
-.hd-neu { display: grid; gap: 4px; }
-.hd-neu select { padding: 4px 6px; font-size: .85rem; min-width: 0; }
-.hd-neu .knopf { justify-self: start; }
+.hd-chip small { color: var(--leise); }
+.hd-chip.aus { opacity: .55; text-decoration: line-through; }
+.hd-chip.aus small { text-decoration: none; display: inline-block; }
+.hd-chip.pause { opacity: .55; }
+.hd-zaehler-zeile { margin: 10px 0 0; font-size: .9rem; }
+.hd-zaehl { border-bottom: 3px solid var(--pf); padding-bottom: 1px; font-weight: 600; }
+.hd-tageliste { display: none; gap: 12px; }
+.hd-tagblock { background: var(--flaeche); border: 1px solid var(--rand); border-radius: 12px; padding: 8px 10px; }
+.hd-tagblock h4 { margin: 0 0 4px; font-size: .95rem; }
+.hd-tagzeile { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px; align-items: center; }
+.hd-aufgabe { font-size: .9rem; color: var(--leise); }
+.hd-pop {
+  position: fixed; z-index: 50; min-width: 200px; max-width: calc(100vw - 16px); max-height: 70vh; overflow-y: auto;
+  background: var(--flaeche); border: 1px solid var(--rand); border-radius: 12px; padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .25); display: grid; gap: 6px;
+}
+.hd-pop h4 { margin: 0 0 2px; font-size: .95rem; }
+.hd-wahl { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+.hd-wahl input { width: 18px; height: 18px; flex: none; }
+.hd-pop-fuss { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+@media (max-width: 640px) {
+  .hd-rahmen { display: none; }
+  .hd-tageliste { display: grid; }
+  .hd-pop { left: 0; right: 0; bottom: 0; top: auto; max-width: none; border-radius: 12px 12px 0 0; }
+}
 .hd-zwei { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap: 0 24px; }
 /* Die Zeilen duerfen schmaler werden als ihre Eingabefelder - sonst
    ragen sie in die Nachbarspalte */
