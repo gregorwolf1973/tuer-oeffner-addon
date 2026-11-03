@@ -96,7 +96,7 @@ tr:last-child td { border-bottom: 0; }
 .hd-tabelle th, .hd-tabelle td { border-bottom: 1px solid var(--rand); padding: 4px; text-align: left; vertical-align: top; }
 .hd-tabelle tbody tr:last-child th, .hd-tabelle tbody tr:last-child td { border-bottom: 0; }
 .hd-tabelle thead th { font-size: .85rem; white-space: nowrap; padding: 8px 6px; }
-.hd-tabelle tbody th { padding: 8px 10px; font-weight: 600; overflow-wrap: anywhere; hyphens: auto; }
+.hd-tabelle tbody th { white-space: normal; padding: 8px 10px; font-weight: 600; overflow-wrap: anywhere; hyphens: auto; }
 .hd-zelle {
   display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; min-height: 36px; padding: 4px;
   background: none; border: 1px solid transparent; border-radius: 8px; color: inherit; font: inherit; cursor: pointer; text-align: left;

@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.14.2
+
+- Verwaltung: Der Umbruch der Aufgabennamen aus 0.14.1 greift jetzt wirklich.
+
 ## 0.14.1
 
 - Verwaltung: Lange Aufgabennamen im Plan brechen um, statt in die Montagsspalte
