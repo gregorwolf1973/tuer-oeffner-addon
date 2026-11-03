@@ -51,6 +51,7 @@ const AKTION_TEXT = {
   owntracks_eingerichtet: "OwnTracks eingerichtet", owntracks_getrennt: "OwnTracks getrennt",
   hd_antrag: "Hausdienst-Antrag", admin_hd_genehmigen: "Hausdienst-Antrag genehmigt",
   admin_hd_ablehnen: "Hausdienst-Antrag abgelehnt",
+  hd_bewertung: "Hausdienst bewertet", admin_hd_bewertung: "Hausdienst bewertet (Verwaltung)",
 };
 
 function knopf(text, fn, klasse = "") {
@@ -709,6 +710,93 @@ function anrufeZeigen(d) {
   $("#hd-anrufe").replaceChildren(...teile);
 }
 
+/* ---------- Bewertungen ---------- */
+
+const BW_KNOEPFE = [[3, "gut"], [2, "naja"], [1, "nicht so gut"], [0, "gar nicht"]];
+const BW_ZEITRAEUME = [["woche", "Diese Woche"], ["monat", "Dieser Monat"], ["gesamt", "Insgesamt"]];
+
+function bewertungZelle(w) {
+  const td = el("td");
+  if (!w.anzahl) td.append(el("span", "–", "leise"));
+  else {
+    td.append(el("strong", `Ø ${w.durchschnitt}`), el("span", ` (${w.anzahl})`, "leise"));
+    // verteilung: gut, naja, nicht so gut, gar nicht
+    const teile = BW_KNOEPFE.map(([, text], i) => (w.verteilung[i] ? `${w.verteilung[i]} ${text}` : "")).filter(Boolean);
+    td.append(el("small", teile.join(" · "), "bw-verteilung"));
+  }
+  if (w.unbewertet) td.append(el("small", `${w.unbewertet} ohne Bewertung`, "bw-verteilung leise"));
+  return td;
+}
+
+function bewertungenZeigen(d) {
+  const b = d.bewertungen;
+  // Gregor bewertet ab 16 Uhr mit, wie die Familie in der App
+  const kopf = el("div", null, "bw-heute");
+  if (!b.heute.offen) kopf.append(el("p", `Bewerten kannst du die heutigen Dienste ab ${b.heute.ab} Uhr.`, "leise"));
+  else if (!b.heute.dienste.length) kopf.append(el("p", "Heute gibt es keine Dienste zu bewerten.", "leise"));
+  else {
+    kopf.append(el("p", "Heute bewerten (als „Admin“):", "leise"));
+    for (const x of b.heute.dienste) {
+      const z = el("div", null, "bw-dienst");
+      const wer = el("span", null, "bw-wer");
+      wer.append(chip(x.name, d.personen.find((p) => p.name === x.name)?.id), el("span", " " + x.aufgabe));
+      const reihe = el("div", null, "bw-knoepfe");
+      for (const [wert, text] of BW_KNOEPFE) {
+        const k = knopf(text, () => bewertungSenden(x.dienst, wert), x.wert === wert ? "haupt" : "");
+        k.setAttribute("aria-pressed", String(x.wert === wert));
+        reihe.append(k);
+      }
+      z.append(wer, reihe);
+      kopf.append(z);
+    }
+  }
+  $("#hd-bewerten").replaceChildren(kopf);
+  const tabelle = el("table", null, "bw-tabelle");
+  const kk = el("thead");
+  const kr = el("tr");
+  kr.append(el("th", "Person"), ...BW_ZEITRAEUME.map(([, t]) => el("th", t)));
+  kk.append(kr);
+  const tk = el("tbody");
+  for (const p of b.personen) {
+    const tr = el("tr");
+    const name = el("th");
+    name.append(chip(p.name, p.id));
+    tr.append(name, ...BW_ZEITRAEUME.map(([z]) => bewertungZelle(p[z])));
+    tk.append(tr);
+  }
+  tabelle.append(kk, tk);
+  const rahmen = el("div", null, "tabelle-rahmen");
+  rahmen.append(tabelle);
+  $("#hd-bewertung").replaceChildren(b.personen.length ? rahmen : el("p", "Noch keine Personen.", "leise"));
+  const lt = el("table", null, "bw-tabelle");
+  const lk = el("thead");
+  const lkr = el("tr");
+  lkr.append(...["Tag", "Dienst", "Bewertet", "Von", "Wert"].map((t) => el("th", t)));
+  lk.append(lkr);
+  const lb = el("tbody");
+  for (const r of b.einzeln) {
+    const tr = el("tr");
+    const person = el("td");
+    person.append(chip(r.name, d.personen.find((p) => p.name === r.name)?.id));
+    tr.append(el("td", r.tag), el("td", r.aufgabe), person, el("td", r.von), el("td", r.wert_text, "bw-wert bw-w" + r.wert));
+    lb.append(tr);
+  }
+  lt.append(lk, lb);
+  const lr = el("div", null, "tabelle-rahmen");
+  lr.append(lt);
+  $("#hd-bewertung-liste").replaceChildren(b.einzeln.length ? lr : el("p", "Noch keine Bewertungen.", "leise"));
+}
+
+async function bewertungSenden(dienst, wert) {
+  try {
+    await api("admin/hausdienst/bewertung", { dienst, wert });
+    melde("");
+  } catch (e) {
+    melde(e.message);
+  }
+  hausdienstLaden();
+}
+
 async function hausdienstLaden() {
   let d;
   try {
@@ -729,6 +817,7 @@ async function hausdienstLaden() {
   personenZeigen(d);
   aufgabenZeigen(d);
   pausenZeigen(d);
+  bewertungenZeigen(d);
   anrufeZeigen(d);
 }
 

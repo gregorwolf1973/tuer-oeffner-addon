@@ -30,6 +30,7 @@ Pause. Antraege landen in der Glocke von Home Assistant.
 """
 
 import base64
+import calendar
 import datetime
 import hashlib
 import json
@@ -314,6 +315,25 @@ CREATE TABLE IF NOT EXISTS hd_antraege (
 );
 -- Tauschanfrage: von_id fragt an_id, ob sie am datum die aufgabe_id
 -- uebernimmt. Antwort per Taste im Anruf oder in der App.
+-- Bewertung eines einzelnen Dienstes am Abend. dienst = "p<plan_id>" (Plandienst)
+-- oder "z<abweichung_id>" (Zusatzdienst); person_id und aufgabe_id bleiben
+-- stehen, auch wenn der Plan sich spaeter aendert. Bewerter: eine Person
+-- (von_person_id) oder die Verwaltung (von_admin = 1, von_person_id NULL).
+CREATE TABLE IF NOT EXISTS hd_bewertungen (
+    id INTEGER PRIMARY KEY,
+    datum TEXT NOT NULL,
+    dienst TEXT NOT NULL,
+    person_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
+    aufgabe_id INTEGER NOT NULL REFERENCES hd_aufgaben(id) ON DELETE CASCADE,
+    von_person_id INTEGER REFERENCES hd_personen(id) ON DELETE CASCADE,
+    von_admin INTEGER NOT NULL DEFAULT 0,
+    -- 3 gut | 2 naja | 1 nicht so gut | 0 gar nicht
+    wert INTEGER NOT NULL CHECK (wert BETWEEN 0 AND 3),
+    zeit INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS hd_bewertung_je_bewerter
+    ON hd_bewertungen(datum, dienst, person_id, COALESCE(von_person_id, 0));
+CREATE INDEX IF NOT EXISTS hd_bewertung_datum ON hd_bewertungen(datum);
 CREATE TABLE IF NOT EXISTS hd_anfragen (
     id INTEGER PRIMARY KEY,
     von_id INTEGER NOT NULL REFERENCES hd_personen(id) ON DELETE CASCADE,
@@ -1865,6 +1885,9 @@ def api_hausdienst(b):
             "f.von_id = ? AND f.datum >= ?", (pid, tag.isoformat()), 10)],
         "anrufzeit": anrufzeit_zeigen(pid),
         "pause_max": HD_PAUSE_MAX_TAGE,
+        # Anonym: nur die eigene Wahl und die Werte fuer die eigenen Dienste
+        "bewerten": bewertungen_heute(pid) if pid else {"offen": False, "ab": BW_STUNDE, "dienste": []},
+        "bewertung": bewertung_auswerten()[pid] if pid else None,
     })
 
 
@@ -1988,6 +2011,198 @@ def api_hausdienst_zurueckziehen(b, aid):
     db().commit()
     glocke_weg(f"hausdienst_antrag_{aid}")
     return jsonify({"ok": True})
+
+
+# ------------------------------------------------------------------
+# Hausdienst-Bewertung: Am Abend (ab 16 Uhr) bewertet die Familie, wie die
+# Dienste des Tages gelaufen sind - jeden fremden Dienst einzeln, anonym. Die
+# App zeigt jedem nur die Werte fuer die eigenen Dienste, die Verwaltung zeigt
+# auch, wer wen wie bewertet hat. Nur zur Ansicht: Der Plan aendert sich nicht.
+# ------------------------------------------------------------------
+
+BW_STUNDE = 16
+BW_WERTE = {3: "gut", 2: "naja", 1: "nicht so gut", 0: "gar nicht"}
+# Aelteres wird taeglich geloescht
+BW_AUFBEWAHREN_MONATE = 3
+BW_ZUSAMMENFASSUNG_STUNDE = 21
+BW_VERWALTUNG_TAGE = 14
+
+
+def jetzt():
+    """Die Uhrzeit im Haus (wie heute()). In den Tests ersetzt."""
+    return datetime.datetime.now()
+
+
+def monate_zurueck(tag, monate):
+    m = tag.year * 12 + tag.month - 1 - monate
+    jahr, monat = m // 12, m % 12 + 1
+    return datetime.date(jahr, monat, min(tag.day, calendar.monthrange(jahr, monat)[1]))
+
+
+def bewertung_offen():
+    return jetzt().hour >= BW_STUNDE
+
+
+def dienst_schluessel(d):
+    return f"p{d['plan_id']}" if d["plan_id"] else f"z{d['abweichung_id']}"
+
+
+def bewertungen_heute(von_pid):
+    """Die heutigen Dienste, die von_pid (None = Verwaltung) bewerten darf,
+    mit der eigenen bisherigen Wahl."""
+    offen = bewertung_offen()
+    dienste = []
+    if offen:
+        tag = heute().isoformat()
+        eigene = {(r["dienst"], r["person_id"]): r["wert"] for r in db().execute(
+            "SELECT dienst, person_id, wert FROM hd_bewertungen WHERE datum = ? AND von_person_id IS ?",
+            (tag, von_pid))}
+        dienste = [{"dienst": dienst_schluessel(d), "name": d["name"], "aufgabe": d["aufgabe"],
+                    "wert": eigene.get((dienst_schluessel(d), d["person_id"]))}
+                   for d in faellige_dienste(heute()) if d["person_id"] != von_pid]
+    return {"offen": offen, "ab": BW_STUNDE, "dienste": dienste}
+
+
+def bewertung_speichern(von_pid, e):
+    """Eine Bewertung fuer heute eintragen oder aendern (von_pid None = die
+    Verwaltung). Gibt (Fehlertext, Protokolltext) zurueck."""
+    wert = ganzzahl(e.get("wert"))
+    if wert not in BW_WERTE:
+        return "Bitte gut, naja, nicht so gut oder gar nicht wählen.", None
+    if not bewertung_offen():
+        return f"Bewertet wird heute ab {BW_STUNDE} Uhr.", None
+    tag = heute()
+    d = next((x for x in dienste_am(tag) if dienst_schluessel(x) == e.get("dienst")), None)
+    if not d:
+        return "Diesen Dienst gibt es heute nicht (mehr).", None
+    if d["entfaellt"] or d["pausiert"]:
+        return "Dieser Dienst ist heute ausgefallen.", None
+    if von_pid and d["person_id"] == von_pid:
+        return "Deine eigenen Dienste bewertest du nicht.", None
+    # Je Bewerter und Dienst eine Wahl, bis Mitternacht aenderbar
+    ist = ("datum = ? AND dienst = ? AND person_id = ? AND von_person_id IS ?",
+           (tag.isoformat(), e["dienst"], d["person_id"], von_pid))
+    n = db().execute(f"UPDATE hd_bewertungen SET wert = ?, aufgabe_id = ?, zeit = ? WHERE {ist[0]}",
+                     (wert, d["aufgabe_id"], int(time.time()), *ist[1])).rowcount
+    if not n:
+        db().execute("INSERT INTO hd_bewertungen (datum, dienst, person_id, aufgabe_id, von_person_id, von_admin,"
+                     " wert, zeit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     (tag.isoformat(), e["dienst"], d["person_id"], d["aufgabe_id"], von_pid, int(von_pid is None),
+                      wert, int(time.time())))
+    db().commit()
+    return None, f"{d['aufgabe']} ({d['name']}): {BW_WERTE[wert]}"
+
+
+@app.post("/api/hausdienst/bewertung")
+@braucht("voll")
+def api_hausdienst_bewertung(b):
+    pid = person_von(b) if ist_familie(b) else None
+    if not pid:
+        return fehler("Du stehst noch nicht im Hausdienst-Plan.", 403)
+    fehl, detail = bewertung_speichern(pid, json_eingabe())
+    if fehl:
+        return fehler(fehl)
+    protokollieren("hd_bewertung", b, detail)
+    return jsonify({"ok": True})
+
+
+def bewertung_auswerten(tag=None):
+    """Je Person und Zeitraum (woche = Mo bis So, monat, gesamt = alles
+    Gespeicherte): Durchschnitt, Anzahl, Verteilung (gut, naja, nicht so gut,
+    gar nicht) und wie viele Dienste bis heute gar keine Bewertung haben."""
+    tag = tag or heute()
+    montag = tag - datetime.timedelta(days=tag.weekday())
+    anfang = {"woche": montag, "monat": tag.replace(day=1), "gesamt": monate_zurueck(tag, BW_AUFBEWAHREN_MONATE)}
+    rohe = {r["id"]: {z: {"summe": 0, "anzahl": 0, "verteilung": [0, 0, 0, 0], "unbewertet": 0} for z in anfang}
+            for r in db().execute("SELECT id FROM hd_personen")}
+    bewertet = set()
+    for r in db().execute("SELECT datum, dienst, person_id, wert FROM hd_bewertungen WHERE datum >= ? AND datum <= ?",
+                          (anfang["gesamt"].isoformat(), tag.isoformat())):
+        bewertet.add((r["datum"], r["dienst"], r["person_id"]))
+        for z, ab in anfang.items():
+            if r["datum"] >= ab.isoformat() and r["person_id"] in rohe:
+                w = rohe[r["person_id"]][z]
+                w["summe"] += r["wert"]
+                w["anzahl"] += 1
+                w["verteilung"][3 - r["wert"]] += 1
+    # "Unbewertet" erst ab dem Tag, an dem es die Bewertung gibt, und heute
+    # erst ab 16 Uhr
+    seit = einstellung_lesen("hd_bw_seit")
+    if not seit:
+        seit = tag.isoformat()
+        einstellung_setzen("hd_bw_seit", seit)
+    t = max(anfang["gesamt"], datum_lesen(seit))
+    bis = tag if tag < heute() or bewertung_offen() else tag - datetime.timedelta(days=1)
+    while t <= bis:
+        for d in faellige_dienste(t):
+            if (t.isoformat(), dienst_schluessel(d), d["person_id"]) not in bewertet:
+                for z, ab in anfang.items():
+                    if t >= ab:
+                        rohe[d["person_id"]][z]["unbewertet"] += 1
+        t += datetime.timedelta(days=1)
+    return {pid: {z: {"durchschnitt": f"{w['summe'] / w['anzahl']:.1f}".replace(".", ",") if w["anzahl"] else None,
+                      "anzahl": w["anzahl"], "verteilung": w["verteilung"], "unbewertet": w["unbewertet"],
+                      "summe": w["summe"]}
+                  for z, w in zeitraeume.items()} for pid, zeitraeume in rohe.items()}
+
+
+def bewertungen_verwaltung():
+    tag = heute()
+    auswertung = bewertung_auswerten(tag)
+    return {
+        "heute": bewertungen_heute(None),
+        "personen": [{"id": p["id"], "name": p["name"]} | auswertung[p["id"]] for p in hd_personen()],
+        "einzeln": [dict(r) | {"tag": datum_text(datum_lesen(r["datum"])), "wert_text": BW_WERTE[r["wert"]]}
+                    for r in db().execute(
+            "SELECT w.datum, b.name, a.name AS aufgabe, COALESCE(v.name, 'Admin') AS von, w.wert FROM hd_bewertungen w"
+            " JOIN hd_personen b ON b.id = w.person_id JOIN hd_aufgaben a ON a.id = w.aufgabe_id"
+            " LEFT JOIN hd_personen v ON v.id = w.von_person_id WHERE w.datum >= ?"
+            " ORDER BY w.datum DESC, b.name, a.name, w.id",
+            ((tag - datetime.timedelta(days=BW_VERWALTUNG_TAGE)).isoformat(),))],
+    }
+
+
+@app.post("/api/admin/hausdienst/bewertung")
+@nur_ingress
+def api_admin_hd_bewertung():
+    fehl, detail = bewertung_speichern(None, json_eingabe())
+    if fehl:
+        return fehler(fehl)
+    protokollieren("admin_hd_bewertung", None, detail, name="Admin")
+    return jsonify({"ok": True})
+
+
+
+def bewertung_tagesarbeit(zeitpunkt=None):
+    """Einmal am Tag Altes loeschen; sonntags und am Monatsletzten ab 21 Uhr
+    eine Zusammenfassung in die Glocke. Was schon verschickt ist, steht in
+    den Einstellungen - Neustarts erzeugen keine Doppelten."""
+    zeitpunkt = zeitpunkt or jetzt()
+    tag = zeitpunkt.date()
+    if einstellung_lesen("hd_bw_aufgeraeumt") != tag.isoformat():
+        db().execute("DELETE FROM hd_bewertungen WHERE datum < ?",
+                     (monate_zurueck(tag, BW_AUFBEWAHREN_MONATE).isoformat(),))
+        db().commit()
+        einstellung_setzen("hd_bw_aufgeraeumt", tag.isoformat())
+    if zeitpunkt.hour < BW_ZUSAMMENFASSUNG_STUNDE:
+        return
+    auswertung = None
+    faelle = []
+    if tag.weekday() == 6:
+        montag = tag - datetime.timedelta(days=6)
+        faelle.append(("woche", "hd_bw_woche", tag.isoformat(), "Woche", f"{montag.day}.{montag.month}.–{tag.day}.{tag.month}."))
+    if tag.day == calendar.monthrange(tag.year, tag.month)[1]:
+        faelle.append(("monat", "hd_bw_monat", f"{tag.year}-{tag.month:02d}", "Monat", f"{MONATE[tag.month - 1]} {tag.year}"))
+    for zeitraum, schluessel, marke, titel, wann in faelle:
+        if einstellung_lesen(schluessel) == marke:
+            continue
+        auswertung = auswertung or bewertung_auswerten(tag)
+        teile = [f"{p['name']} Ø {auswertung[p['id']][zeitraum]['durchschnitt']} ({auswertung[p['id']][zeitraum]['anzahl']})"
+                 for p in hd_personen() if auswertung[p["id"]][zeitraum]["anzahl"]]
+        if teile:
+            glocke(f"Bewertung der {titel} ({wann}), Durchschnitt und Anzahl der Bewertungen: " + ", ".join(teile) + ".",
+                   f"hausdienst_bewertung_{zeitraum}_{marke}")
+        einstellung_setzen(schluessel, marke)
 
 
 # ------------------------------------------------------------------
@@ -2175,6 +2390,11 @@ def anruf_schleife():
                 anrufe_pruefen()
         except Exception:  # noqa: BLE001
             log.exception("Hausdienst-Anrufe")
+        try:
+            with app.app_context():
+                bewertung_tagesarbeit()
+        except Exception:  # noqa: BLE001
+            log.exception("Hausdienst-Bewertungen")
         time.sleep(30)
 
 
@@ -2377,6 +2597,7 @@ def api_admin_hausdienst():
         "anrufliste": [dict(r) for r in db().execute(
             "SELECT a.datum, a.versuch, a.zeit, a.bestaetigt, a.fehler, b.name FROM hd_anrufe a"
             " JOIN hd_personen b ON b.id = a.person_id ORDER BY a.id DESC LIMIT 30")],
+        "bewertungen": bewertungen_verwaltung(),
     })
 
 

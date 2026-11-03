@@ -166,3 +166,18 @@ tr:last-child td { border-bottom: 0; }
 .hd-telefon td:last-child .knopf + .knopf { margin-left: 4px; }
 /* Meldungen bleiben sichtbar, auch weit unten auf der Seite */
 #meldung { position: sticky; top: 8px; z-index: 20; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+
+/* ---------- Hausdienst: Bewertungen ---------- */
+
+.bw-tabelle td small { display: block; }
+.bw-verteilung { margin-top: 2px; }
+.bw-heute { margin-bottom: 10px; }
+.bw-dienst { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 0; border-bottom: 1px solid var(--rand); }
+.bw-wer { flex: 1 1 200px; }
+.bw-knoepfe { display: flex; flex-wrap: wrap; gap: 6px; }
+.bw-knoepfe .knopf.haupt { width: auto; }
+.hd-einzeln { margin: 10px 0; }
+.hd-einzeln summary { cursor: pointer; color: var(--akzent-hell); margin-bottom: 8px; }
+.bw-wert { font-weight: 600; white-space: nowrap; }
+.bw-w3 { color: var(--gut); }
+.bw-w0 { color: var(--schlecht); }

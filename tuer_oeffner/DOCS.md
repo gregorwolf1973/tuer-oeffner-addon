@@ -55,7 +55,12 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
     landet in der Glocke von Home Assistant und wird in der Verwaltung
     entschieden. Zur eingestellten Uhrzeit (jeder stellt sie selbst ein)
     ruft ha-sip an, Taste 1 = verstanden, sonst nach 30 Minuten ein zweiter
-    Anruf.
+    Anruf. Ab 16 Uhr bewertet jeder die Dienste der anderen von heute
+    (gut, naja, nicht so gut, gar nicht) – anonym, bis Mitternacht änderbar;
+    jeder sieht nur die Werte für die eigenen Dienste. Die Verwaltung zeigt
+    alles samt Bewerter, sonntags und am Monatsletzten ab 21 Uhr kommt eine
+    Zusammenfassung in die Glocke. Bewertungen werden nach drei Monaten
+    gelöscht und ändern nichts am Plan.
 
   Beides geht von überall, ohne Standortprüfung.
 - **Gäste-WLAN:** Jeder freigegebene Zugang – auch Freunde – hat in der App

@@ -903,6 +903,62 @@ function auswahl(wert, text) {
   return o;
 }
 
+const HD_BEWERTUNG = [[3, "gut"], [2, "naja"], [1, "nicht so gut"], [0, "gar nicht"]];
+const HD_ZEITRAEUME = [["woche", "Woche"], ["monat", "Monat"], ["gesamt", "Insgesamt"]];
+
+// Ab 16 Uhr: die heutigen Dienste der anderen, je Dienst vier Knöpfe
+function hdBewertenZeigen(d) {
+  const b = d.bewerten;
+  $("#hd-bewerten-bereich").hidden = !d.eingetragen;
+  $("#hd-bewerten-hinweis").textContent = !b.offen
+    ? `Ab ${b.ab} Uhr kannst du die Dienste von heute bewerten.`
+    : b.dienste.length ? "Wie war der Dienst? Niemand sieht, wie du bewertest. Du kannst bis Mitternacht ändern."
+      : "Heute gibt es keine Dienste von anderen zu bewerten.";
+  $("#hd-bewerten").replaceChildren(...b.dienste.map((x) => {
+    const li = document.createElement("li");
+    const t = document.createElement("span");
+    t.textContent = `${x.name}: ${x.aufgabe}`;
+    const reihe = document.createElement("div");
+    reihe.className = "bw-knoepfe";
+    reihe.append(...HD_BEWERTUNG.map(([wert, text]) => {
+      const k = document.createElement("button");
+      k.type = "button";
+      k.className = "knopf bw-knopf bw-w" + wert;
+      k.textContent = text;
+      k.setAttribute("aria-pressed", String(x.wert === wert));
+      k.onclick = () => ausfuehren(async () => {
+        await api("hausdienst/bewertung", { dienst: x.dienst, wert });
+        hausdienstLaden();
+      }).catch(() => {});
+      return k;
+    }));
+    li.append(t, reihe);
+    return li;
+  }));
+}
+
+// Nur die Werte für die eigenen Dienste, ohne Namen der Bewerter
+function hdBewertungZeigen(d) {
+  const w = d.bewertung;
+  const gibt = w && HD_ZEITRAEUME.some(([z]) => w[z].anzahl);
+  $("#hd-bewertung-bereich").hidden = !gibt;
+  if (!gibt) return;
+  $("#hd-bewertung").replaceChildren(...HD_ZEITRAEUME.map(([z, titel]) => {
+    const k = document.createElement("div");
+    k.className = "bw-karte";
+    const kopf = document.createElement("small");
+    kopf.textContent = titel;
+    const zahl = document.createElement("strong");
+    zahl.textContent = w[z].anzahl ? "Ø " + w[z].durchschnitt : "–";
+    const rest = document.createElement("small");
+    rest.textContent = w[z].anzahl
+      ? HD_BEWERTUNG.map(([, text], i) => (w[z].verteilung[i] ? `${w[z].verteilung[i]}× ${text}` : "")).filter(Boolean).join(", ")
+      : "keine Bewertung";
+    k.append(kopf, zahl, rest);
+    return k;
+  }));
+}
+
 function hausdienstZeigen(d) {
   $("#hd-heute-tag").textContent = d.heute;
   $("#hd-heute").replaceChildren(...(d.dienste.length
@@ -916,6 +972,8 @@ function hausdienstZeigen(d) {
     : [hdEintrag(d.eingetragen ? "In den nächsten vier Wochen hast du keinen Dienst."
       : "Du stehst noch nicht im Hausdienst-Plan.", "", "leise")]));
   hdMehrZeigen();
+  hdBewertenZeigen(d);
+  hdBewertungZeigen(d);
   $("#hd-pause-block").hidden = !d.eingetragen;
   $("#hd-gefragt-bereich").hidden = !d.anfragen_an_mich.length;
   $("#hd-gefragt").replaceChildren(...d.anfragen_an_mich.map((a) => {

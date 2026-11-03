@@ -281,3 +281,15 @@ input:focus, select:focus { outline: 2px solid var(--akzent-hell); outline-offse
 .hd-liste .antrag.offen .knopf + .knopf { margin-left: 6px; }
 .hd-mehr { margin-top: 8px; }
 .hd-liste li[hidden], .hd-mehr[hidden], #hd-zeiten[hidden] { display: none; }
+
+/* Bewertung der Dienste: große Knöpfe, zwei Spalten auf dem Handy */
+.bw-liste li { display: grid; gap: 8px; }
+.bw-knoepfe { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.bw-knopf { min-height: 48px; font-size: 1rem; padding: 10px 6px; }
+.bw-knopf[aria-pressed="true"] { border-width: 2px; border-color: var(--akzent-hell); background: var(--akzent-hell); color: var(--auf-farbe); font-weight: 700; }
+.bw-karten { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.bw-karte { display: grid; gap: 2px; background: var(--grund); border-radius: 8px; padding: 8px 10px; align-content: start; }
+.bw-karte strong { font-size: 1.25rem; }
+.bw-karte small { color: var(--leise); }
+@media (max-width: 380px) { .bw-karten { grid-template-columns: 1fr; } }
+.hd-liste .bw-knopf { margin-left: 0; }

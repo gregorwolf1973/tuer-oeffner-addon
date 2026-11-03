@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.15.0
+
+- Hausdienst: **Bewertung.** Ab 16 Uhr bewertet jeder die heutigen Dienste der
+  anderen (gut, naja, nicht so gut, gar nicht), anonym und bis Mitternacht
+  änderbar. In der App steht „Deine Bewertung“ (Woche, Monat, insgesamt), in der
+  Verwaltung alles samt Bewerter; dort kann man auch selbst mitbewerten. Sonntags und
+  am Monatsletzten ab 21 Uhr fasst die Glocke zusammen. Nach drei Monaten werden
+  Bewertungen gelöscht.
+
 ## 0.14.2
 
 - Verwaltung: Der Umbruch der Aufgabennamen aus 0.14.1 greift jetzt wirklich.

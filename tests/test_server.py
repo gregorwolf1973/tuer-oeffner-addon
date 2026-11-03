@@ -63,7 +63,7 @@ ZUSTAENDE = {}
 @pytest.fixture(autouse=True)
 def sauber():
     conn = server.verbinden()
-    conn.executescript("DELETE FROM hd_anfragen; DELETE FROM hd_anrufe; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
+    conn.executescript("DELETE FROM hd_bewertungen; DELETE FROM hd_anfragen; DELETE FROM hd_anrufe; DELETE FROM hd_telefon; DELETE FROM hd_antraege; DELETE FROM hd_pausen; DELETE FROM hd_abweichungen;"
                        " DELETE FROM hd_plan; DELETE FROM hd_aufgaben; DELETE FROM hd_personen;"
                        " DELETE FROM standorte; DELETE FROM passkeys; DELETE FROM benutzer; DELETE FROM protokoll;"
                        " DELETE FROM einstellungen;")
@@ -1505,3 +1505,207 @@ def test_anrufzeit_selbst_einstellen(anrufe):
     registrieren(gast, "gast@example.org", "Gast")
     freigeben("gast@example.org", familie=True)
     assert post(gast, "/api/hausdienst/anrufzeit", {"zeit": "07:00"}).status_code == 403
+
+
+# ------------------------------------------------------------------
+# Hausdienst: Bewertung
+# ------------------------------------------------------------------
+
+SONNTAG = server.datetime.date(2026, 11, 1)
+
+
+@pytest.fixture()
+def bewertung(hausdienst, monkeypatch):
+    """Montag 17 Uhr; Küche bei Anna, Flur bei Bert (zusätzlich am Montag)."""
+    monkeypatch.setattr(server, "jetzt", lambda: um(17))
+    admin, auf, ids = hausdienst["admin"], hausdienst["auf"], hausdienst["ids"]
+    post(admin, "/api/admin/hausdienst/plan", {"wochentag": 0, "person_id": ids["bert"], "aufgabe_id": auf["Flur"]},
+         environ_base=INGRESS)
+    plan = {(p["name"], p["aufgabe"]): p["id"] for p in admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["plan"]
+            if p["wochentag"] == 0}
+    return hausdienst | {"kueche": f"p{plan[('Anna', 'Küche')]}", "flur": f"p{plan[('Bert', 'Flur')]}", "plan": plan}
+
+
+def bewertung_eintragen(datum, dienst, person_id, aufgabe_id, von_id, wert):
+    conn = server.verbinden()
+    conn.execute("INSERT INTO hd_bewertungen (datum, dienst, person_id, aufgabe_id, von_person_id, von_admin, wert, zeit)"
+                 " VALUES (?, ?, ?, ?, ?, ?, ?, 0)", (datum, dienst, person_id, aufgabe_id, von_id, int(von_id is None), wert))
+    conn.commit()
+    conn.close()
+
+
+def glocken(ha):
+    return [d for m, p, d in ha if p == "/services/persistent_notification/create"]
+
+
+def test_bewerten_erst_ab_16_uhr(bewertung, monkeypatch):
+    anna, bert = bewertung["anna"], bewertung["bert"]
+    monkeypatch.setattr(server, "jetzt", lambda: um(15, 59))
+    b = bert.get("/api/hausdienst").json["bewerten"]
+    assert b == {"offen": False, "ab": 16, "dienste": []}
+    r = post(bert, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 3})
+    assert r.status_code == 400 and "16 Uhr" in r.json["fehler"]
+    assert post(bewertung["admin"], "/api/admin/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 3},
+                environ_base=INGRESS).status_code == 400
+    monkeypatch.setattr(server, "jetzt", lambda: um(16))
+    assert post(bert, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 3}).status_code == 200
+    monkeypatch.setattr(server, "jetzt", lambda: um(23, 59))
+    assert post(bert, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 2}).status_code == 200
+
+
+def test_nur_fremde_dienste_und_nur_mit_person(bewertung):
+    anna, bert = bewertung["anna"], bewertung["bert"]
+    assert [(x["name"], x["aufgabe"]) for x in anna.get("/api/hausdienst").json["bewerten"]["dienste"]] == [("Bert", "Flur")]
+    r = post(anna, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 3})
+    assert r.status_code == 400 and "eigenen" in r.json["fehler"]
+    assert post(anna, "/api/hausdienst/bewertung", {"dienst": bewertung["flur"], "wert": 4}).status_code == 400
+    assert post(anna, "/api/hausdienst/bewertung", {"dienst": "p99999", "wert": 3}).status_code == 400
+    assert post(anna, "/api/hausdienst/bewertung", {"dienst": bewertung["flur"], "wert": 0}).status_code == 200
+    gast = server.app.test_client()
+    registrieren(gast, "gast@example.org", "Gast")
+    freigeben("gast@example.org", familie=True)
+    assert post(gast, "/api/hausdienst/bewertung", {"dienst": bewertung["flur"], "wert": 3}).status_code == 403
+    assert post(bert, "/api/admin/hausdienst/bewertung", {"dienst": bewertung["flur"], "wert": 3}).status_code == 404
+
+
+def test_entfallene_und_pausierte_dienste_nicht_bewertbar(bewertung):
+    anna, bert, admin, ids = bewertung["anna"], bewertung["bert"], bewertung["admin"], bewertung["ids"]
+    post(admin, "/api/admin/hausdienst/tag", {"datum": "2026-11-02", "plan_id": bewertung["plan"][("Anna", "Küche")],
+                                              "person_id": None}, environ_base=INGRESS)
+    r = post(bert, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 3})
+    assert r.status_code == 400 and "ausgefallen" in r.json["fehler"]
+    post(admin, "/api/admin/hausdienst/pause", {"person_id": ids["bert"], "von": "2026-11-02", "bis": "2026-11-03"},
+         environ_base=INGRESS)
+    assert post(anna, "/api/hausdienst/bewertung", {"dienst": bewertung["flur"], "wert": 3}).status_code == 400
+    assert anna.get("/api/hausdienst").json["bewerten"]["dienste"] == []
+
+
+def test_bewertung_aendern_statt_doppelt(bewertung):
+    bert, admin = bewertung["bert"], bewertung["admin"]
+    for wert in (3, 1):
+        assert post(bert, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": wert}).status_code == 200
+    assert bert.get("/api/hausdienst").json["bewerten"]["dienste"] == [
+        {"dienst": bewertung["kueche"], "name": "Anna", "aufgabe": "Küche", "wert": 1}]
+    # Die Verwaltung ist ein eigener Bewerter und zaehlt gleich
+    for wert in (3, 2):
+        assert post(admin, "/api/admin/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": wert},
+                    environ_base=INGRESS).status_code == 200
+    d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["bewertungen"]
+    assert sorted((r["von"], r["wert"]) for r in d["einzeln"]) == [("Admin", 2), ("Bert", 1)]
+    anna = next(p for p in d["personen"] if p["name"] == "Anna")
+    assert anna["woche"]["anzahl"] == 2 and anna["woche"]["durchschnitt"] == "1,5"
+    assert d["heute"]["dienste"][0]["wert"] == 2 or d["heute"]["dienste"][1]["wert"] == 2
+    assert protokoll_aktionen(admin).count("hd_bewertung") == 2
+
+
+def protokoll_aktionen(admin):
+    return [p["aktion"] for p in admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["protokoll"]]
+
+
+def test_app_zeigt_keine_bewerter(bewertung):
+    anna, bert, admin = bewertung["anna"], bewertung["bert"], bewertung["admin"]
+    post(bert, "/api/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 3})
+    post(admin, "/api/admin/hausdienst/bewertung", {"dienst": bewertung["kueche"], "wert": 1}, environ_base=INGRESS)
+    d = anna.get("/api/hausdienst").json
+    assert d["bewertung"]["woche"]["anzahl"] == 2 and d["bewertung"]["woche"]["durchschnitt"] == "2,0"
+    assert d["bewertung"]["woche"]["verteilung"] == [1, 0, 1, 0]
+    text = server.json.dumps(d)
+    assert "von" not in d["bewertung"]["woche"] and "Admin" not in text
+    # Annas Liste der zu bewertenden Dienste kennt nur die eigene Wahl (hier keine)
+    assert d["bewerten"]["dienste"] == [{"dienst": bewertung["flur"], "name": "Bert", "aufgabe": "Flur", "wert": None}]
+    # Bert sieht bei sich nur das, was andere zu seinem Dienst sagen: nichts
+    assert bert.get("/api/hausdienst").json["bewertung"]["woche"]["anzahl"] == 0
+
+
+def test_auswertung_woche_monat_insgesamt(bewertung):
+    anna, admin, ids, auf = bewertung["anna"], bewertung["admin"], bewertung["ids"], bewertung["auf"]
+    k = bewertung["kueche"]
+    einstellung_setzen("hd_bw_seit", "2026-08-01")
+    for datum, von, wert in (("2026-11-02", ids["bert"], 3), ("2026-11-02", None, 1),
+                             ("2026-10-26", ids["bert"], 2), ("2026-10-05", ids["bert"], 2)):
+        bewertung_eintragen(datum, k, ids["anna"], auf["Küche"], von, wert)
+    w = anna.get("/api/hausdienst").json["bewertung"]
+    assert (w["woche"]["durchschnitt"], w["woche"]["anzahl"], w["woche"]["verteilung"]) == ("2,0", 2, [1, 0, 1, 0])
+    assert (w["monat"]["anzahl"], w["monat"]["unbewertet"]) == (2, 0)
+    assert w["woche"]["unbewertet"] == 0
+    # Seit 2.8.: 14 Montage mit Küche, davon 3 bewertet
+    assert (w["gesamt"]["durchschnitt"], w["gesamt"]["anzahl"], w["gesamt"]["verteilung"]) == ("2,0", 4, [1, 2, 1, 0])
+    assert w["gesamt"]["unbewertet"] == 11
+    d = admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["bewertungen"]
+    assert [p["name"] for p in d["personen"]] == ["Anna", "Bert"]
+    assert d["personen"][0]["gesamt"]["anzahl"] == 4
+    # Bert: Flur am Montag (14) und am Dienstag (13), nie bewertet; diese Woche nur der heutige
+    assert (d["personen"][1]["woche"]["unbewertet"], d["personen"][1]["gesamt"]["unbewertet"]) == (1, 27)
+    assert d["personen"][1]["gesamt"]["durchschnitt"] is None
+    # Einzelliste: nur die letzten 14 Tage
+    assert sorted(r["datum"] for r in d["einzeln"]) == ["2026-10-26", "2026-11-02", "2026-11-02"]
+
+
+def test_bewertungen_nach_drei_monaten_loeschen(bewertung):
+    ids, auf = bewertung["ids"], bewertung["auf"]
+    for datum in ("2026-07-31", "2026-08-01", "2026-08-02", "2026-11-02"):
+        bewertung_eintragen(datum, bewertung["kueche"], ids["anna"], auf["Küche"], ids["bert"], 3)
+    with server.app.app_context():
+        server.bewertung_tagesarbeit(um(10))
+        rest = [r[0] for r in server.db().execute("SELECT datum FROM hd_bewertungen ORDER BY datum")]
+        assert rest == ["2026-08-02", "2026-11-02"]
+        # Einmal pro Tag: nochmal am selben Tag fasst nichts an, am naechsten Tag schon
+        bewertung_eintragen("2026-07-01", bewertung["kueche"], ids["anna"], auf["Küche"], ids["bert"], 3)
+        server.bewertung_tagesarbeit(um(12))
+        assert server.db().execute("SELECT COUNT(*) FROM hd_bewertungen").fetchone()[0] == 3
+        server.bewertung_tagesarbeit(um(0, 5, MONTAG + server.datetime.timedelta(days=1)))
+        assert [r[0] for r in server.db().execute("SELECT datum FROM hd_bewertungen")] == ["2026-11-02"]
+
+
+def test_geloeschte_person_nimmt_bewertungen_mit(bewertung):
+    admin, ids, auf = bewertung["admin"], bewertung["ids"], bewertung["auf"]
+    bewertung_eintragen("2026-11-02", bewertung["kueche"], ids["anna"], auf["Küche"], ids["bert"], 3)
+    assert post(admin, f"/api/admin/hausdienst/person/{ids['bert']}/loeschen", environ_base=INGRESS).status_code == 200
+    assert admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["bewertungen"]["einzeln"] == []
+
+
+def test_glocke_woche_und_monat_nur_einmal(bewertung, ha):
+    ids, auf = bewertung["ids"], bewertung["auf"]
+    bewertung_eintragen("2026-10-26", bewertung["kueche"], ids["anna"], auf["Küche"], ids["bert"], 3)
+    bewertung_eintragen("2026-10-27", bewertung["flur"], ids["bert"], auf["Flur"], ids["anna"], 2)
+    bewertung_eintragen("2026-10-28", bewertung["flur"], ids["bert"], auf["Flur"], None, 1)
+
+    def lauf(zeitpunkt):
+        with server.app.app_context():
+            server.bewertung_tagesarbeit(zeitpunkt)
+
+    lauf(um(20, 59, SONNTAG))
+    assert glocken(ha) == []
+    lauf(um(21, 0, SONNTAG))
+    (g,) = glocken(ha)
+    assert "Woche" in g["message"] and "Anna Ø 3,0 (1)" in g["message"] and "Bert Ø 1,5 (2)" in g["message"]
+    lauf(um(22, 0, SONNTAG))
+    lauf(um(21, 30, SONNTAG))
+    assert len(glocken(ha)) == 1
+    # Der Merker steht in den Einstellungen, ein Neustart verschickt nichts doppelt
+    lauf(um(21, 0, MONTAG))
+    assert len(glocken(ha)) == 1  # kein Sonntag, kein Monatsende
+    bewertung_eintragen("2026-11-02", bewertung["kueche"], ids["anna"], auf["Küche"], ids["bert"], 2)
+    ende = server.datetime.date(2026, 11, 30)
+    lauf(um(20, 0, ende))
+    lauf(um(21, 0, ende))
+    lauf(um(23, 0, ende))
+    meldungen = glocken(ha)
+    assert len(meldungen) == 2 and "November 2026" in meldungen[1]["message"] and "Anna Ø 2,0 (1)" in meldungen[1]["message"]
+
+
+def einstellung_setzen(schluessel, wert):
+    conn = server.verbinden()
+    conn.execute("INSERT OR REPLACE INTO einstellungen (schluessel, wert) VALUES (?, ?)", (schluessel, wert))
+    conn.commit()
+    conn.close()
+
+
+def test_unbewertet_erst_seit_es_die_bewertung_gibt(bewertung, monkeypatch):
+    admin = bewertung["admin"]
+    # Ohne Startdatum zaehlt nur heute (ab 16 Uhr) - nicht die drei Monate davor
+    bert = lambda: next(p for p in admin.get("/api/admin/hausdienst", environ_base=INGRESS).json["bewertungen"]["personen"]
+                        if p["name"] == "Bert")["gesamt"]["unbewertet"]
+    assert bert() == 1
+    monkeypatch.setattr(server, "jetzt", lambda: um(10))
+    assert bert() == 0
