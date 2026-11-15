@@ -187,6 +187,7 @@ async function laden() {
   }
 
   const e = d.einstellungen;
+  hausdienstSichtbar(e.hausdienst);
   const warn = [];
   if (!e.tuer_entitaet) warn.push("Es ist keine Tür-Entität eingestellt – Öffnen geht noch nicht.");
   else if (!e.entitaet_typ_ok) warn.push(`„${e.tuer_entitaet}“ ist kein unterstützter Typ (switch, button, script, lock, automation …).`);
@@ -810,7 +811,17 @@ async function bewertungSenden(dienst, wert) {
   hausdienstLaden();
 }
 
+// Ausgeschalteter Hausdienst (Option "hausdienst"): Bereich ganz ausblenden
+let hausdienstAn = null;
+function hausdienstSichtbar(an) {
+  const war = hausdienstAn;
+  hausdienstAn = Boolean(an);
+  $(".hd-verwaltung").hidden = !hausdienstAn;
+  if (hausdienstAn && war === false) hausdienstLaden();
+}
+
 async function hausdienstLaden() {
+  if (hausdienstAn === false) return;
   let d;
   try {
     d = await api("admin/hausdienst");
@@ -875,6 +886,5 @@ $("#test-oeffnen").onclick = async () => {
   laden();
 };
 
-laden();
-hausdienstLaden();
+laden().then(() => { if (hausdienstAn) hausdienstLaden(); });
 setInterval(() => { if (!document.querySelector(".mehr[open]")) laden(); }, 30000);

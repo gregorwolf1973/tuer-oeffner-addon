@@ -95,6 +95,12 @@ configuration:
   wlan_verschluesselung:
     name: Gäste-WLAN – Verschlüsselung
     description: WPA gilt auch für WPA2 und WPA3.
+  hausdienst:
+    name: Hausdienst
+    description: >-
+      Plan, Morgenanrufe und Bewertung des Hausdienstes. Aus = in App und
+      Verwaltung nicht zu sehen, keine Anrufe; die eingetragenen Daten bleiben
+      erhalten.
   sip_addon:
     name: Hausdienst – ha-sip-Add-on
     description: >-

@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.17.0
+
+- **Hausdienst abschaltbar** (neue Option „Hausdienst“, Voreinstellung: aus).
+  Ausgeschaltet verschwindet die Karte aus der App und der Bereich aus der
+  Verwaltung, es gibt keine Morgen- und Tauschanrufe und keine
+  Bewertungs-Hinweise mehr. Plan, Personen und Bewertungen bleiben gespeichert
+  und sind nach dem Einschalten wieder da.
+
 ## 0.16.0
 
 - Hausdienst: **Anrufe je Person.** Die Verwaltung schaltet Anrufe für jede

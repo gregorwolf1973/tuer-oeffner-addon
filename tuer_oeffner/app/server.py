@@ -91,6 +91,9 @@ POLLEN_PRAEFIX = os.environ.get("POLLEN_PRAEFIX", "").strip()
 WLAN_NAME = os.environ.get("WLAN_NAME", "").strip()
 WLAN_SCHLUESSEL = os.environ.get("WLAN_SCHLUESSEL", "")
 WLAN_VERSCHLUESSELUNG = os.environ.get("WLAN_VERSCHLUESSELUNG", "WPA").strip() or "WPA"
+# Hausdienst (Plan, Anrufe, Bewertung) - aus: nichts davon ist sichtbar oder laeuft,
+# die gespeicherten Daten bleiben erhalten
+HAUSDIENST = os.environ.get("HAUSDIENST", "0").strip().lower() in ("1", "true", "ja")
 # Hausdienst-Anrufe ueber das Add-on ha-sip
 SIP_ADDON = os.environ.get("SIP_ADDON", "").strip()
 SIP_KONTO = int(os.environ.get("SIP_KONTO", "2") or 2)
@@ -615,6 +618,9 @@ def vor_jeder_anfrage():
     # einer CORS-Vorabfrage, die hier nie erlaubt wird.
     if request.method == "POST" and request.path.startswith("/api/") and request.headers.get("X-Tuer") != "1":
         abort(403)
+    # Ausgeschalteter Hausdienst: alle seine Schnittstellen gibt es nicht
+    if not HAUSDIENST and request.path.startswith(("/api/hausdienst", "/api/admin/hausdienst")):
+        return fehler("Der Hausdienst ist ausgeschaltet.", 404)
 
 
 @app.after_request
@@ -762,7 +768,7 @@ def api_status():
             kamera=ist_familie(b) and bool(KAMERA_ENTITAET),
             pollen=ist_familie(b) and bool(POLLEN_PRAEFIX),
             standorte=ist_familie(b),
-            hausdienst=ist_familie(b),
+            hausdienst=HAUSDIENST and ist_familie(b),
             standort_teilen=ist_familie(b) and bool(b["standort_teilen"]),
             owntracks=ist_familie(b) and bool(b["owntracks_hash"]),
             owntracks_zuletzt=b["owntracks_zuletzt"] if ist_familie(b) else None,
@@ -2528,6 +2534,7 @@ def api_admin_uebersicht():
         "protokoll": eintraege,
         "warmwasser": warmwasser_ziel_daten(),
         "einstellungen": {
+            "hausdienst": HAUSDIENST,
             "tuer_entitaet": TUER_ENTITAET,
             "entitaet_typ_ok": TUER_ENTITAET.split(".", 1)[0] in DIENSTE,
             "externe_adresse": EXTERNE_ADRESSE,
@@ -2945,8 +2952,11 @@ if __name__ == "__main__":
         log.info("Kamera: %s", KAMERA_ENTITAET)
     if not passkey_moeglich():
         log.warning("Keine externe https-Adresse eingestellt - Passkeys sind aus")
-    if SIP_ADDON:
-        log.info("Hausdienst-Anrufe ueber %s, Konto %s (Rueckmeldung an %s)", SIP_ADDON, SIP_KONTO, EIGENER_SLUG)
-    threading.Thread(target=anruf_schleife, name="hausdienst", daemon=True).start()
+    if not HAUSDIENST:
+        log.info("Hausdienst ist ausgeschaltet")
+    else:
+        if SIP_ADDON:
+            log.info("Hausdienst-Anrufe ueber %s, Konto %s (Rueckmeldung an %s)", SIP_ADDON, SIP_KONTO, EIGENER_SLUG)
+        threading.Thread(target=anruf_schleife, name="hausdienst", daemon=True).start()
     threading.Thread(target=stdin_lesen, args=(sys.stdin,), name="stdin", daemon=True).start()
     serve(app, host="0.0.0.0", port=PORT, threads=8, ident=None)

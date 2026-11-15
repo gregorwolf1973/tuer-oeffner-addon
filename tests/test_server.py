@@ -33,6 +33,7 @@ os.environ.update(
     POLLEN_PRAEFIX="sensor.pollenflug_",
     WLAN_NAME="Gast",
     WLAN_SCHLUESSEL="geheim;123",
+    HAUSDIENST="1",
 )
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tuer_oeffner", "app"))
 server = importlib.import_module("server")
@@ -1075,6 +1076,16 @@ def test_hausdienst_heute_und_mein_plan(hausdienst):
     assert [m["datum"] for m in d["meine"]] == ["2026-11-02", "2026-11-09", "2026-11-16", "2026-11-23"]
     assert d["familie"] == [{"id": hausdienst["ids"]["bert"], "name": "Bert"}]
     assert hausdienst["anna"].get("/api/status").json["hausdienst"] is True
+
+
+def test_hausdienst_ausgeschaltet(hausdienst, monkeypatch):
+    monkeypatch.setattr(server, "HAUSDIENST", False)
+    assert hausdienst["anna"].get("/api/status").json["hausdienst"] is False
+    assert hausdienst["anna"].get("/api/hausdienst").status_code == 404
+    assert post(hausdienst["anna"], "/api/hausdienst/anrufzeit", {"zeit": "06:00"}).status_code == 404
+    admin = hausdienst["admin"]
+    assert admin.get("/api/admin/hausdienst", environ_base=INGRESS).status_code == 404
+    assert admin.get("/api/admin/uebersicht", environ_base=INGRESS).json["einstellungen"]["hausdienst"] is False
 
 
 def test_hausdienst_nur_fuer_die_familie(hausdienst):

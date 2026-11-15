@@ -1,5 +1,5 @@
 name: Türöffner
-version: "0.16.0"
+version: "0.17.0"
 slug: tuer_oeffner
 # Fertige Abbilder aus der GitHub-Registrierung. Ohne diese Zeile baut
 # jedes Geraet selbst - auf einem Pi dauert das viele Minuten.
@@ -48,6 +48,7 @@ options:
   wlan_name: ""
   wlan_schluessel: ""
   wlan_verschluesselung: WPA
+  hausdienst: false
   sip_addon: "c7744bff_ha-sip"
   sip_konto: 2
   sip_server: "192.168.178.1"
@@ -74,6 +75,7 @@ schema:
   wlan_name: str?
   wlan_schluessel: password?
   wlan_verschluesselung: list(WPA|WEP|offen)
+  hausdienst: bool
   sip_addon: str?
   sip_konto: int(1,3)
   sip_server: str?

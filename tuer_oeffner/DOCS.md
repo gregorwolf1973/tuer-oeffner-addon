@@ -48,7 +48,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
     Freigabe aus, verwirft das Add-on alles, was OwnTracks schickt.
   - **Pollenflug** vom DWD für heute, morgen und übermorgen: belastete
     Arten mit Farbstufe (gering – mittel – hoch), der Rest eingeklappt.
-  - **Hausdienst:** wer heute was macht und wann man selbst wieder dran
+  - **Hausdienst** (nur wenn die Option `hausdienst` an ist): wer heute was macht und wann man selbst wieder dran
     ist. Einen Dienst abgeben: die andere Person direkt fragen – sie wird
     angerufen (7–21 Uhr, 1 = ja, 2 = nein) oder antwortet in der App, bei Ja
     ist der Dienst gleich bei ihr. Eine Pause wird beantragt; der Antrag
@@ -128,6 +128,7 @@ Zugang. Die Freunde registrieren sich selbst, du gibst frei.
 | `staubsauger_batterie` | Sensor für den Akkustand, leer = Akku aus dem Staubsauger selbst |
 | `kamera_entitaet` | Kamera für das Livebild (nur Familie), leer = kein Livebild |
 | `pollen_praefix` | Anfang der IDs der DWD-Pollenflug-Sensoren (`sensor.pollenflug_`), leer = keine Pollen-Karte |
+| `hausdienst` | Hausdienst (Plan, Anrufe, Bewertung) ein/aus, Voreinstellung aus. Aus = nirgends zu sehen, keine Anrufe; die Daten bleiben erhalten |
 | `sip_addon` | Slug von ha-sip für die Hausdienst-Anrufe, leer = keine Anrufe |
 | `sip_konto` | welches Konto von ha-sip anruft (1–3) – am besten ein eigenes |
 | `sip_server` | Telefonanlage, an die die Nummern gehen, z. B. `192.168.178.1` |
